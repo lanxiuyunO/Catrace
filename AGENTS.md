@@ -36,7 +36,8 @@ Catrace 是一款桌面端工具，帮助用户平衡工作与休息。
 │   │   └── timeBlocks.ts       # 前瞻式 block 切分（前后端共用逻辑）
 │   ├── views/
 │   │   ├── Dashboard.vue
-│   │   └── Settings.vue
+│   │   ├── Settings.vue
+│   │   └── Debug.vue
 │   ├── App.vue                 # 布局 + naive-ui 主题注入
 │   ├── theme.ts                # 统一色板 + naive-ui themeOverrides
 │   ├── main.ts
@@ -74,6 +75,9 @@ Catrace 是一款桌面端工具，帮助用户平衡工作与休息。
    - 全局监听键盘按下事件（`rdev`），2 秒内去重。
 2. **分钟判定**（`lib.rs`）
    - 60 秒内活动次数 ≥ 3 → 该分钟标记为**活跃**；否则标记为**休息**。
+   - **视频/流媒体检测**：若键鼠活动不足，但检测到正在播放视频，该分钟仍视为**活跃**。
+     - **Windows**：优先尝试 `GlobalSystemMediaTransportControlsSessionManager` 枚举系统媒体会话，只要有会话处于 **Playing** 状态即算活跃（不限 `PlaybackType`，覆盖浏览器、UWP 播放器、Spotify 等）。GSMTCSM API 调用成功时完全信任其结果（无 Playing 会话也视为不活跃），仅在 API 调用失败时才回退到窗口标题 + 进程名关键词匹配。
+     - **macOS / Linux**：直接走窗口标题 + 进程名关键词匹配（YouTube、Bilibili、Netflix、VLC 等），基于 `active-win-pos-rs`。
 3. **Block 切分与提醒**（`db.rs` + `lib.rs` + `utils/timeBlocks.ts`）
    - 从首个有记录的时间点开始，向后以 `window_minutes` 为单元切分 block：
      - 若在窗口内遇到连续 `break_minutes` 休息 → 切为**休息 block**（到连续休息结束）。
@@ -114,6 +118,7 @@ Catrace 是一款桌面端工具，帮助用户平衡工作与休息。
 | `window_minutes` | 工作窗口长度（分钟） | 45 |
 | `break_minutes` | 连续休息多少分钟算断开（分钟） | 5 |
 | `silent_start` | 开机自启时不显示主窗口 | false |
+| `video_active_enabled` | 视频计入活跃（开启后看视频算活跃，活跃时长到达后仍会提醒休息） | true |
 
 **提醒操作（进程级状态，重启后重置）**
 
@@ -152,7 +157,7 @@ src-tauri/src/
 src/
 ├── views/
 │   ├── Dashboard.vue    -- 今日统计四卡片 + 今日活动（概览/详细切换）
-│   └── Settings.vue     -- window_minutes / break_minutes 滑块
+│   └── Settings.vue     -- 提醒偏好滑块（自动保存）+ 启动行为开关 + 更新/链接
 ├── components/
 │   ├── Timeline.vue         -- 24h × 60min 色块热力图（CSS Grid）
 │   └── TimelineWindows.vue  -- 概览 block 卡片网格（自适应列数，点击展开整行）
@@ -257,7 +262,7 @@ CREATE TABLE settings (
 | 2 | 每分钟活跃判定，写入 SQLite | ✅ |
 | 3 | 滑动窗口算法 + 系统通知 | ✅ |
 | 4 | Tauri 套壳 + Vue 3 前端 | ✅ |
-| 5 | Settings 页：滑块改配置 | ✅ |
+| 5 | Settings 页：滑块改配置（自动保存） | ✅ |
 | 6 | Dashboard：今日活动（详细/概览双视图）+ 统计 | ✅ |
 | 7 | 系统托盘图标 | ✅ |
 | 8 | ~~应用分类名单~~ | ❌ 已砍掉 |
@@ -280,6 +285,11 @@ CREATE TABLE settings (
 | 19 | 设置页文本优化 + 开机自启/静默启动开关 | ✅ |
 | 20 | 关闭不退出最小化到托盘，双击托盘显示主页面 | ✅ |
 | 21 | 设置页两栏布局 + 相关链接（GitHub/更新日志/问题反馈） | ✅ |
+| 27 | 视频检测：GSMTCSM 优先，API 失败时关键词兜底，去掉 Video 类型限制 | ✅ |
+| 28 | 视频检测调试页面（实时显示 GSMTCSM 会话、焦点窗口、键鼠计数） | ✅ |
+| 29 | 「视频计入活跃」开关设置 | ✅ |
+| 30 | 文案中性化：「工作」→「活跃」 | ✅ |
+| 31 | 设置页去掉保存按钮，提醒偏好滑块自动保存 | ✅ |
 
 ---
 

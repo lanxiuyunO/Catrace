@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import {
   NSlider,
   NSwitch,
@@ -15,14 +15,18 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import {
   getConfig, setConfig,
   getSilentStart, setSilentStart,
+  getVideoActiveEnabled, setVideoActiveEnabled,
   testNotification,
 } from '../api/tauri'
 
 const config = ref({ window_minutes: 45, break_minutes: 5 })
 const autostart = ref(false)
 const silentStart = ref(false)
-const loading = ref({ config: false, autostart: false, silent: false })
+const videoActiveEnabled = ref(true)
+const loading = ref({ config: false, autostart: false, silent: false, videoActive: false })
 const message = useMessage()
+const isConfigReady = ref(false)
+let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 // 更新状态
 const appVersion = ref('')
@@ -32,11 +36,12 @@ const updateInstalling = ref(false)
 
 onMounted(async () => {
   try {
-    const [c, a, s, v] = await Promise.all([
+    const [c, a, s, v, va] = await Promise.all([
       getConfig(),
       isEnabled(),
       getSilentStart(),
       getVersion(),
+      getVideoActiveEnabled(),
     ])
     config.value = {
       window_minutes: Number(c.window_minutes),
@@ -44,23 +49,33 @@ onMounted(async () => {
     }
     autostart.value = a
     silentStart.value = s
+    videoActiveEnabled.value = va
     appVersion.value = v
+    isConfigReady.value = true
   } catch (e) {
     console.error('获取配置失败', e)
   }
 })
 
-async function saveConfig() {
-  loading.value.config = true
-  try {
-    await setConfig(config.value)
-    message.success('已保存')
-  } catch (e) {
-    message.error('保存失败')
-  } finally {
-    loading.value.config = false
+watch(
+  () => ({ window_minutes: config.value.window_minutes, break_minutes: config.value.break_minutes }),
+  async (newVal, oldVal) => {
+    if (!isConfigReady.value) return
+    if (newVal.window_minutes === oldVal.window_minutes && newVal.break_minutes === oldVal.break_minutes) return
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(async () => {
+      loading.value.config = true
+      try {
+        await setConfig(config.value)
+        message.success('已保存')
+      } catch (e) {
+        message.error('保存失败')
+      } finally {
+        loading.value.config = false
+      }
+    }, 500)
   }
-}
+)
 
 async function toggleAutostart(val: boolean) {
   loading.value.autostart = true
@@ -91,6 +106,20 @@ async function toggleSilentStart(val: boolean) {
     silentStart.value = !val
   } finally {
     loading.value.silent = false
+  }
+}
+
+async function toggleVideoActive(val: boolean) {
+  loading.value.videoActive = true
+  try {
+    await setVideoActiveEnabled(val)
+    videoActiveEnabled.value = val
+    message.success(val ? '已开启视频计入活跃' : '已关闭视频计入活跃')
+  } catch (e) {
+    message.error('设置失败')
+    videoActiveEnabled.value = !val
+  } finally {
+    loading.value.videoActive = false
   }
 }
 
@@ -161,8 +190,8 @@ async function handleInstallUpdate() {
 
           <div class="setting-row">
             <div class="setting-meta">
-              <div class="setting-title">连续工作提醒</div>
-              <div class="setting-desc">连续工作多久后提醒你休息</div>
+              <div class="setting-title">休息提醒间隔</div>
+              <div class="setting-desc">连续活跃多久后提醒你休息</div>
             </div>
             <div class="setting-control slider-control">
               <n-slider v-model:value="config.window_minutes" :min="10" :max="120" :step="5" />
@@ -185,12 +214,26 @@ async function handleInstallUpdate() {
 
           <div class="divider" />
 
-          <div class="setting-row actions">
-            <div />
-            <n-space>
-              <n-button type="primary" :loading="loading.config" @click="saveConfig">保存</n-button>
-              <n-button @click="notify">测试通知</n-button>
-            </n-space>
+          <div class="divider" />
+
+          <div class="setting-row">
+            <div class="setting-meta">
+              <div class="setting-title">视频计入活跃</div>
+              <div class="setting-desc">开启后，看视频时会提醒</div>
+            </div>
+            <n-switch
+              :value="videoActiveEnabled"
+              :loading="loading.videoActive"
+              @update:value="toggleVideoActive"
+            />
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-meta">
+              <div class="setting-title">通知测试</div>
+              <div class="setting-desc">手动发送一条通知预览效果</div>
+            </div>
+            <n-button @click="notify">测试通知</n-button>
           </div>
         </div>
 
@@ -303,12 +346,6 @@ async function handleInstallUpdate() {
       </div>
     </div>
 
-    <!-- 底部：关于 -->
-    <div class="group about">
-      <div class="about-name">Catrace</div>
-      <div class="about-version">v0.1.0</div>
-      <div class="about-desc">后台静默运行的桌面工具，帮助你平衡工作与休息</div>
-    </div>
   </div>
 </template>
 
@@ -408,28 +445,6 @@ async function handleInstallUpdate() {
   height: 1px;
   background: #F5F3FF;
   margin: 0;
-}
-
-/* 关于 */
-.about {
-  text-align: center;
-  padding: 24px;
-  margin-bottom: 0;
-}
-.about-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: #2E1065;
-}
-.about-version {
-  font-size: 11px;
-  color: #A78BFA;
-  margin: 2px 0 8px;
-  font-variant-numeric: tabular-nums;
-}
-.about-desc {
-  font-size: 12px;
-  color: #8B7AAB;
 }
 
 /* 相关链接 */
