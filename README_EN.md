@@ -4,6 +4,8 @@ A small tool that helps you balance work and rest.
 
 ![Catrace Dashboard](.readme/dashboard.png)
 
+![Catrace Notification](.readme/notification.png)
+
 ## What it does
 
 Many people sit in front of the computer for hours, and by the time they realize it, their back and neck are already sore.

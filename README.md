@@ -6,6 +6,8 @@
 
 ![Catrace Dashboard](.readme/dashboard.png)
 
+![Catrace 通知](.readme/notification.png)
+
 ## 它是干嘛的
 
 很多人一坐电脑前就是几个小时，等反应过来已经腰酸背痛了。
