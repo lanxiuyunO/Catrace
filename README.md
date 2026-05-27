@@ -4,7 +4,7 @@
 
 一个帮你平衡工作与休息的小工具。
 
-[![下载](https://img.shields.io/badge/下载-Releases-blue)](https://github.com/lanxiuyun/catrace/releases)
+[→ 下载最新版本](https://github.com/lanxiuyun/catrace/releases)
 
 ![Catrace Dashboard](.readme/dashboard.png)
 

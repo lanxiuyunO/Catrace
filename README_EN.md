@@ -2,7 +2,7 @@
 
 A small tool that helps you balance work and rest.
 
-[![Download](https://img.shields.io/badge/Download-Releases-blue)](https://github.com/lanxiuyun/catrace/releases)
+[→ Download latest release](https://github.com/lanxiuyun/catrace/releases)
 
 ![Catrace Dashboard](.readme/dashboard.png)
 
