@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, computed } from 'vue'
+import { h, computed, onMounted } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -12,6 +12,8 @@ import {
 } from 'naive-ui'
 import { themeOverrides } from './theme'
 import { zhCN as naiveZhCN, enUS as naiveEnUS } from 'naive-ui'
+import ReminderPopup from './views/ReminderPopup.vue'
+import ReminderFullscreen from './views/ReminderFullscreen.vue'
 
 const route = useRoute()
 const { t, locale } = useI18n()
@@ -34,12 +36,28 @@ const menuOptions = computed(() => [
     key: '/debug',
   },
 ])
+
+const isReminderRoute = computed(() => {
+  const type = (window as any).__CATRACE_REMINDER_TYPE__
+  return type === 'popup' || type === 'fullscreen'
+    || route.path === '/reminder-popup'
+    || route.path === '/reminder-fullscreen'
+})
+
+const currentReminderType = computed(() => {
+  return (window as any).__CATRACE_REMINDER_TYPE__ || ''
+})
 </script>
 
 <template>
   <n-config-provider :theme-overrides="themeOverrides" :locale="naiveLocale">
     <n-message-provider>
-      <n-layout has-sider class="app-layout">
+      <template v-if="isReminderRoute">
+        <ReminderPopup v-if="currentReminderType === 'popup' || route.path === '/reminder-popup'" />
+        <ReminderFullscreen v-else-if="currentReminderType === 'fullscreen' || route.path === '/reminder-fullscreen'" />
+        <RouterView v-else />
+      </template>
+      <n-layout v-else has-sider class="app-layout">
         <n-layout-sider
           bordered
           :collapsed-width="64"

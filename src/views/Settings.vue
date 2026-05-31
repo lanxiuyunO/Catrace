@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NSlider,
@@ -7,6 +7,7 @@ import {
   NButton,
   NProgress,
   NSelect,
+  NInput,
   useMessage,
 } from 'naive-ui'
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart'
@@ -20,17 +21,24 @@ import {
   getVideoActiveEnabled, setVideoActiveEnabled,
   getLocale, setLocale,
   testNotification,
+  getReminderMode, setReminderMode,
+  getReminderText, setReminderText,
+  getFullscreenSettings, setFullscreenSettings,
 } from '../api/tauri'
 import i18n from '../i18n'
 
 const { t } = useI18n()
 
-const config = ref({ window_minutes: 45, break_minutes: 5 })
+const config = ref({ window_minutes: 45, break_minutes: 5, snooze_interval_minutes: 3 })
 const autostart = ref(false)
 const silentStart = ref(false)
 const videoActiveEnabled = ref(true)
 const localeVal = ref('zh-CN')
-const loading = ref({ config: false, autostart: false, silent: false, videoActive: false, locale: false })
+const reminderMode = ref('toast')
+const customBody = ref('')
+const fullscreenBg = ref('')
+const fullscreenOpacity = ref(80)
+const loading = ref({ config: false, autostart: false, silent: false, videoActive: false, locale: false, reminderMode: false, reminderText: false, fullscreen: false })
 const message = useMessage()
 const isConfigReady = ref(false)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -49,6 +57,12 @@ const localeOptions = [
   { label: 'English', value: 'en-US' },
 ]
 
+const reminderModeOptions = [
+  { label: t('settings.reminder.modeToast'), value: 'toast' },
+  { label: t('settings.reminder.modePopup'), value: 'popup' },
+  { label: t('settings.reminder.modeFullscreen'), value: 'fullscreen' },
+]
+
 function detectDefaultLocale(): string {
   const lang = navigator.language || 'zh-CN'
   if (lang.startsWith('en')) return 'en-US'
@@ -57,22 +71,30 @@ function detectDefaultLocale(): string {
 
 onMounted(async () => {
   try {
-    const [c, a, s, v, va, loc] = await Promise.all([
+    const [c, a, s, v, va, loc, rm, rt, fs] = await Promise.all([
       getConfig(),
       isEnabled(),
       getSilentStart(),
       getVersion(),
       getVideoActiveEnabled(),
       getLocale(),
+      getReminderMode(),
+      getReminderText(),
+      getFullscreenSettings(),
     ])
     config.value = {
       window_minutes: Number(c.window_minutes),
       break_minutes: Number(c.break_minutes),
+      snooze_interval_minutes: Number(c.snooze_interval_minutes) || 3,
     }
     autostart.value = a
     silentStart.value = s
     videoActiveEnabled.value = va
     appVersion.value = v
+    reminderMode.value = rm || 'toast'
+    customBody.value = rt.body || ''
+    fullscreenBg.value = fs.bg_image || ''
+    fullscreenOpacity.value = Number(fs.opacity) || 80
 
     // 如果 DB 里没有 locale，自动检测并保存
     if (!loc) {
@@ -85,6 +107,8 @@ onMounted(async () => {
       i18n.global.locale.value = loc as 'zh-CN' | 'en-US'
     }
 
+    // 等待 Vue 处理完批量 watcher（此时 isConfigReady 仍为 false，watcher 会跳过）
+    await nextTick()
     isConfigReady.value = true
   } catch (e) {
     console.error('Failed to load settings', e)
@@ -92,10 +116,10 @@ onMounted(async () => {
 })
 
 watch(
-  () => ({ window_minutes: config.value.window_minutes, break_minutes: config.value.break_minutes }),
+  () => ({ window_minutes: config.value.window_minutes, break_minutes: config.value.break_minutes, snooze_interval_minutes: config.value.snooze_interval_minutes }),
   async (newVal, oldVal) => {
     if (!isConfigReady.value) return
-    if (newVal.window_minutes === oldVal.window_minutes && newVal.break_minutes === oldVal.break_minutes) return
+    if (newVal.window_minutes === oldVal.window_minutes && newVal.break_minutes === oldVal.break_minutes && newVal.snooze_interval_minutes === oldVal.snooze_interval_minutes) return
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(async () => {
       loading.value.config = true
@@ -125,6 +149,77 @@ watch(localeVal, async (newVal, oldVal) => {
     loading.value.locale = false
   }
 })
+
+watch(reminderMode, async (newVal, oldVal) => {
+  if (!isConfigReady.value || newVal === oldVal) return
+  loading.value.reminderMode = true
+  try {
+    await setReminderMode(newVal)
+    message.success(t('settings.messages.saved'))
+  } catch (e) {
+    message.error(t('settings.messages.saveFailed'))
+    reminderMode.value = oldVal
+  } finally {
+    loading.value.reminderMode = false
+  }
+})
+
+let textSaveTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+  () => customBody.value,
+  async (newVal, oldVal) => {
+    if (!isConfigReady.value) return
+    if (newVal === oldVal) return
+    if (textSaveTimer) clearTimeout(textSaveTimer)
+    textSaveTimer = setTimeout(async () => {
+      loading.value.reminderText = true
+      try {
+        await setReminderText('', customBody.value)
+        message.success(t('settings.messages.saved'))
+      } catch (e) {
+        message.error(t('settings.messages.saveFailed'))
+      } finally {
+        loading.value.reminderText = false
+      }
+    }, 500)
+  }
+)
+
+let fullscreenSaveTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+  () => ({ bg: fullscreenBg.value, opacity: fullscreenOpacity.value }),
+  async (newVal, oldVal) => {
+    if (!isConfigReady.value) return
+    if (newVal.bg === oldVal.bg && newVal.opacity === oldVal.opacity) return
+    if (fullscreenSaveTimer) clearTimeout(fullscreenSaveTimer)
+    fullscreenSaveTimer = setTimeout(async () => {
+      loading.value.fullscreen = true
+      try {
+        await setFullscreenSettings(fullscreenBg.value, fullscreenOpacity.value)
+        message.success(t('settings.messages.saved'))
+      } catch (e) {
+        message.error(t('settings.messages.saveFailed'))
+      } finally {
+        loading.value.fullscreen = false
+      }
+    }, 500)
+  }
+)
+
+function handleBgFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    fullscreenBg.value = reader.result as string
+  }
+  reader.readAsDataURL(file)
+}
+
+function clearBg() {
+  fullscreenBg.value = ''
+}
 
 async function toggleAutostart(val: boolean) {
   loading.value.autostart = true
@@ -251,23 +346,6 @@ async function handleInstallUpdate() {
       <!-- 左侧：设置项 -->
       <div class="col-left">
         <div class="group">
-          <div class="group-label">{{ t('settings.language.title') }}</div>
-          <div class="setting-row">
-            <div class="setting-meta">
-              <div class="setting-title">{{ t('settings.language.title') }}</div>
-              <div class="setting-desc">{{ t('settings.language.desc') }}</div>
-            </div>
-            <n-select
-              v-model:value="localeVal"
-              :options="localeOptions"
-              :loading="loading.locale"
-              size="small"
-              style="width: 140px;"
-            />
-          </div>
-        </div>
-
-        <div class="group">
           <div class="group-label">{{ t('settings.groups.reminder') }}</div>
 
           <div class="setting-row">
@@ -296,6 +374,17 @@ async function handleInstallUpdate() {
 
           <div class="divider" />
 
+          <div class="setting-row">
+            <div class="setting-meta">
+              <div class="setting-title">{{ t('settings.reminder.snoozeIntervalTitle') }}</div>
+              <div class="setting-desc">{{ t('settings.reminder.snoozeIntervalDesc') }}</div>
+            </div>
+            <div class="setting-control slider-control">
+              <n-slider v-model:value="config.snooze_interval_minutes" :min="1" :max="10" :step="1" />
+              <span class="setting-value">{{ config.snooze_interval_minutes }} {{ t('common.minutes') }}</span>
+            </div>
+          </div>
+
           <div class="divider" />
 
           <div class="setting-row">
@@ -309,6 +398,85 @@ async function handleInstallUpdate() {
               @update:value="toggleVideoActive"
             />
           </div>
+        </div>
+
+        <div class="group">
+          <div class="group-label">{{ t('settings.groups.notification') }}</div>
+
+          <div class="setting-row">
+            <div class="setting-meta">
+              <div class="setting-title">{{ t('settings.reminder.modeTitle') }}</div>
+              <div class="setting-desc">{{ t('settings.reminder.modeDesc') }}</div>
+            </div>
+            <n-select
+              v-model:value="reminderMode"
+              :options="reminderModeOptions"
+              :loading="loading.reminderMode"
+              size="small"
+              style="width: 160px;"
+            />
+          </div>
+
+          <!-- 全屏提醒设置暂时隐藏 -->
+          <!--
+          <transition name="fade-slide">
+            <div v-if="reminderMode === 'fullscreen'" class="fullscreen-section">
+
+              <div class="fs-bg-upload">
+                <div v-if="fullscreenBg" class="fs-bg-preview">
+                  <img :src="fullscreenBg" alt="bg" />
+                  <div class="fs-bg-actions">
+                    <label class="fs-btn fs-btn-secondary">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      {{ t('settings.reminder.changeBg') }}
+                      <input type="file" accept="image/*" @change="handleBgFileChange" hidden />
+                    </label>
+                    <button class="fs-btn fs-btn-danger" @click="clearBg">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                      {{ t('settings.reminder.clearBg') }}
+                    </button>
+                  </div>
+                </div>
+                <label v-else class="fs-bg-empty">
+                  <input type="file" accept="image/*" @change="handleBgFileChange" hidden />
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#C4B5FD" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                  <span class="fs-empty-text">{{ t('settings.reminder.fullscreenBgTitle') }}</span>
+                  <span class="fs-empty-hint">{{ t('settings.reminder.fullscreenBgDesc') }}</span>
+                </label>
+              </div>
+
+              <div class="setting-row" style="padding-top: 4px;">
+                <div class="setting-meta">
+                  <div class="setting-title">{{ t('settings.reminder.fullscreenOpacityTitle') }}</div>
+                  <div class="setting-desc">{{ t('settings.reminder.fullscreenOpacityDesc') }}</div>
+                </div>
+                <div class="setting-control slider-control">
+                  <n-slider v-model:value="fullscreenOpacity" :min="0" :max="100" :step="5" />
+                  <span class="setting-value">{{ fullscreenOpacity }}%</span>
+                </div>
+              </div>
+            </div>
+          </transition>
+          -->
+
+          <div class="divider" />
+
+          <div class="setting-row" style="align-items: flex-start;">
+            <div class="setting-meta">
+              <div class="setting-title">{{ t('settings.reminder.customBody') }}</div>
+              <div class="setting-desc">{{ t('settings.reminder.customBodyDesc') }}</div>
+            </div>
+            <n-input
+              v-model:value="customBody"
+              :placeholder="t('settings.reminder.customBody')"
+              type="textarea"
+              :rows="2"
+              size="small"
+              style="width: 220px;"
+            />
+          </div>
+
+          <div class="divider" />
 
           <div class="setting-row">
             <div class="setting-meta">
@@ -320,11 +488,56 @@ async function handleInstallUpdate() {
         </div>
 
         <div class="group">
-          <div class="group-label">{{ t('settings.groups.update') }}</div>
+          <div class="group-label">{{ t('settings.groups.system') }}</div>
 
           <div class="setting-row">
             <div class="setting-meta">
-              <div class="setting-title">{{ t('settings.update.currentVersion') }}</div>
+              <div class="setting-title">{{ t('settings.language.title') }}</div>
+              <div class="setting-desc">{{ t('settings.language.desc') }}</div>
+            </div>
+            <n-select
+              v-model:value="localeVal"
+              :options="localeOptions"
+              :loading="loading.locale"
+              size="small"
+              style="width: 140px;"
+            />
+          </div>
+
+          <div class="divider" />
+
+          <div class="setting-row">
+            <div class="setting-meta">
+              <div class="setting-title">{{ t('settings.startup.autostartTitle') }}</div>
+              <div class="setting-desc">{{ t('settings.startup.autostartDesc') }}</div>
+            </div>
+            <n-switch
+              :value="autostart"
+              :loading="loading.autostart"
+              @update:value="toggleAutostart"
+            />
+          </div>
+
+          <div class="divider" />
+
+          <div class="setting-row">
+            <div class="setting-meta">
+              <div class="setting-title">{{ t('settings.startup.silentStartTitle') }}</div>
+              <div class="setting-desc">{{ t('settings.startup.silentStartDesc') }}</div>
+            </div>
+            <n-switch
+              :value="silentStart"
+              :loading="loading.silent"
+              :disabled="!autostart"
+              @update:value="toggleSilentStart"
+            />
+          </div>
+
+          <div class="divider" />
+
+          <div class="setting-row">
+            <div class="setting-meta">
+              <div class="setting-title">{{ t('settings.update.softwareVersion') }}</div>
               <div class="setting-desc">{{ appVersion || '...' }}</div>
             </div>
             <div class="setting-control">
@@ -366,37 +579,6 @@ async function handleInstallUpdate() {
               </div>
             </div>
           </template>
-        </div>
-
-        <div class="group">
-          <div class="group-label">{{ t('settings.groups.startup') }}</div>
-
-          <div class="setting-row">
-            <div class="setting-meta">
-              <div class="setting-title">{{ t('settings.startup.autostartTitle') }}</div>
-              <div class="setting-desc">{{ t('settings.startup.autostartDesc') }}</div>
-            </div>
-            <n-switch
-              :value="autostart"
-              :loading="loading.autostart"
-              @update:value="toggleAutostart"
-            />
-          </div>
-
-          <div class="divider" />
-
-          <div class="setting-row">
-            <div class="setting-meta">
-              <div class="setting-title">{{ t('settings.startup.silentStartTitle') }}</div>
-              <div class="setting-desc">{{ t('settings.startup.silentStartDesc') }}</div>
-            </div>
-            <n-switch
-              :value="silentStart"
-              :loading="loading.silent"
-              :disabled="!autostart"
-              @update:value="toggleSilentStart"
-            />
-          </div>
         </div>
       </div>
 
@@ -543,6 +725,46 @@ async function handleInstallUpdate() {
   margin: 0;
 }
 
+/* 全屏提醒子区域 */
+.fullscreen-section {
+  background: #FAFAFF;
+  border: 1px solid #F5F3FF;
+  border-radius: 10px;
+  margin: 2px 0 8px;
+  padding: 10px 14px;
+}
+.fullscreen-section .divider {
+  background: #F0EDFA;
+}
+.fullscreen-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7C3AED;
+  letter-spacing: 0.3px;
+  margin-bottom: 6px;
+}
+
+/* 展开/收起过渡动画 */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.25s ease;
+  overflow: hidden;
+}
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.fade-slide-enter-to,
+.fade-slide-leave-from {
+  opacity: 1;
+  max-height: 400px;
+}
+
 /* 相关链接 */
 .links-group {
   padding: 20px 28px 12px;
@@ -633,6 +855,121 @@ async function handleInstallUpdate() {
   margin-bottom: 12px;
   white-space: pre-wrap;
   line-height: 1.5;
+}
+
+.bg-preview {
+  position: relative;
+  width: 220px;
+  height: 120px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #EBE6F2;
+}
+.bg-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.bg-clear {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.bg-clear:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* 全屏背景上传 */
+.fs-bg-upload {
+  margin-bottom: 4px;
+}
+.fs-bg-preview {
+  position: relative;
+  width: 100%;
+  height: 110px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #EBE6F2;
+}
+.fs-bg-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.fs-bg-actions {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  display: flex;
+  gap: 8px;
+}
+.fs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.fs-btn-secondary {
+  background: rgba(255, 255, 255, 0.92);
+  color: #2E1065;
+  backdrop-filter: blur(8px);
+}
+.fs-btn-secondary:hover {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.fs-btn-danger {
+  background: rgba(255, 255, 255, 0.92);
+  color: #EF4444;
+  backdrop-filter: blur(8px);
+}
+.fs-btn-danger:hover {
+  background: #FEE2E2;
+  color: #DC2626;
+}
+.fs-bg-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100px;
+  border-radius: 10px;
+  border: 2px dashed #E0D8F0;
+  background: #FAFAFF;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  gap: 6px;
+}
+.fs-bg-empty:hover {
+  border-color: #C4B5FD;
+  background: #F5F3FF;
+}
+.fs-bg-empty:hover svg {
+  stroke: #7C3AED;
+}
+.fs-empty-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2E1065;
+}
+.fs-empty-hint {
+  font-size: 12px;
+  color: #8B7AAB;
 }
 
 /* 响应式 */
