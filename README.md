@@ -36,19 +36,8 @@ Catrace 就是来解决这个问题的——它在后台默默观察你的活动
 
 你可以设置自己的工作时长和休息判定时长，找到最适合自己的节奏。
 
-> 只要你开始休息（哪怕只休息了一分钟），提醒就会自动停止，不会在你休息时一直催。等你恢复工作了，它才会重新判断。
+> 只要你开始休息（哪怕只休息了一分钟），提醒就会自动停止，不会在你休息时一直提醒。等你恢复工作了，它才会重新判断。
 
-## 隐私
+## 友链
 
-所有数据都存在你自己电脑里，不上传任何服务器，也不记录你按了哪些键、点了哪里。只有「这分钟你在忙」还是「这分钟你在休息」这两个状态会被记下来。
-
-## 界面概览
-
-Catrace 提供简洁的 Dashboard，帮你回顾今天的工作与休息节奏：
-
-- **今日统计**：今天一共忙了多久、歇了多久、占了多少比例、分成了几个时段
-- **今日活动（概览）**：按工作节奏切分的时段卡片，一眼就能看出今天的工作与休息是怎么交替的；点击卡片可以展开，看到每 10 分钟的细节
-- **今日活动（详细）**：24 小时的分钟级色块热力图，适合想精确查看某个时间点状态的时候
-- **设置**：调整工作窗口长度与休息打断阈值，选择提醒模式（系统通知 / 弹窗 / 全屏），自定义提醒内容与全屏背景，设置开机自启，以及切换界面语言（简体中文 / English）
-
-界面采用淡紫 wellness 主题，侧边栏导航 + 主内容区布局，干净清爽。支持简体中文与 English 双语切换，默认自动跟随系统语言。
+[![友链 linux.do](https://img.shields.io/badge/LINUX--DO-Community-blue.svg?logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDEyMCAxMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI%2BPGNsaXBQYXRoIGlkPSJhIj48Y2lyY2xlIGN4PSI2MCIgY3k9IjYwIiByPSI0NyIvPjwvY2xpcFBhdGg%2BPGNpcmNsZSBmaWxsPSIjZjBmMGYwIiBjeD0iNjAiIGN5PSI2MCIgcj0iNTAiLz48cmVjdCBmaWxsPSIjMWMxYzFlIiBjbGlwLXBhdGg9InVybCgjYSkiIHg9IjEwIiB5PSIxMCIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIzMCIvPjxyZWN0IGZpbGw9IiNmMGYwZjAiIGNsaXAtcGF0aD0idXJsKCNhKSIgeD0iMTAiIHk9IjQwIiB3aWR0aD0iMTAwIiBoZWlnaHQ9IjQwIi8%2BPHJlY3QgZmlsbD0iI2ZmYjAwMyIgY2xpcC1wYXRoPSJ1cmwoI2EpIiB4PSIxMCIgeT0iODAiIHdpZHRoPSIxMDAiIGhlaWdodD0iMzAiLz48L3N2Zz4%3D&style=flat)](https://linux.do/)
