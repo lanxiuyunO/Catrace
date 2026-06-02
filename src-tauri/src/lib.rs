@@ -2,6 +2,7 @@ mod db;
 mod reminder;
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -15,6 +16,9 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri_plugin_notification::NotificationExt;
 use tokio::time::interval;
+use base64::Engine;
+use std::fs;
+use std::path::Path;
 // 窗口状态由 tauri-plugin-window-state 自动管理（启动恢复 / 退出保存）
 
 // ------------------------------------------------------------------
@@ -253,6 +257,8 @@ struct ReminderWindowData {
     break_minutes: i64,
     fullscreen_bg: Option<String>,
     fullscreen_opacity: i64,
+    fullscreen_fit_mode: String,
+    fullscreen_element_transforms: String,
 }
 
 type ReminderWindowStore = Arc<Mutex<HashMap<String, ReminderWindowData>>>;
@@ -418,16 +424,20 @@ fn set_config(config: serde_json::Value, db: tauri::State<db::Db>) -> Result<(),
 }
 
 #[tauri::command]
-fn skip_reminder(boundary: i64, state: tauri::State<Arc<Mutex<ReminderState>>>) {
+fn skip_reminder(boundary: i64, state: tauri::State<Arc<Mutex<ReminderState>>>, fullscreen_active: tauri::State<Arc<AtomicBool>>) {
     let mut s = state.lock().unwrap();
     s.skip_until_boundary = Some(boundary);
     s.snooze_until = None;
+    // 用户操作后恢复正常活动追踪
+    fullscreen_active.store(false, Ordering::SeqCst);
 }
 
 #[tauri::command]
-fn snooze_reminder(minutes: u64, state: tauri::State<Arc<Mutex<ReminderState>>>) {
+fn snooze_reminder(minutes: u64, state: tauri::State<Arc<Mutex<ReminderState>>>, fullscreen_active: tauri::State<Arc<AtomicBool>>) {
     let mut s = state.lock().unwrap();
     s.snooze_until = Some(Instant::now() + Duration::from_secs(minutes * 60));
+    // 用户操作后恢复正常活动追踪
+    fullscreen_active.store(false, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -519,17 +529,167 @@ fn set_reminder_text(title: String, body: String, db: tauri::State<db::Db>) -> R
     db.set_setting("reminder_body", &body).map_err(|e| e.to_string())
 }
 
+// ------------------------------------------------------------------
+// 全屏背景图：保存到磁盘文件，数据库只存路径
+// ------------------------------------------------------------------
+
+/// 解析 data URL，返回 (扩展名, 解码后的二进制数据)
+fn parse_data_url(data_url: &str) -> Option<(String, Vec<u8>)> {
+    let rest = data_url.strip_prefix("data:")?;
+    let comma_idx = rest.find(',')?;
+    let meta = &rest[..comma_idx];
+    let b64_data = &rest[comma_idx + 1..];
+
+    let mime = meta.split(';').next()?;
+    let ext = match mime {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/svg+xml" => "svg",
+        _ => "png",
+    };
+
+    let padded = match b64_data.len() % 4 {
+        2 => format!("{}==", b64_data),
+        3 => format!("{}=", b64_data),
+        _ => b64_data.to_string(),
+    };
+    let decoded = base64::engine::general_purpose::STANDARD.decode(&padded).ok()?;
+    Some((ext.to_string(), decoded))
+}
+
+/// 将 data URL 保存为磁盘文件，返回文件路径
+fn save_bg_image_to_disk(app_data_dir: &Path, data_url: &str) -> Result<String, String> {
+    let (ext, bytes) = parse_data_url(data_url)
+        .ok_or_else(|| "Invalid data URL format".to_string())?;
+
+    let bg_dir = app_data_dir.join("bg");
+    fs::create_dir_all(&bg_dir).map_err(|e| e.to_string())?;
+
+    remove_bg_image_from_disk(app_data_dir);
+
+    let file_path = bg_dir.join(format!("fullscreen_bg.{}", ext));
+    fs::write(&file_path, &bytes).map_err(|e| e.to_string())?;
+
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+/// 将 bundled 默认背景图复制到 app_data_dir/bg/，返回文件路径
+fn ensure_default_bg(app_handle: &tauri::AppHandle, app_data_dir: &Path) -> Result<String, String> {
+    let bg_dir = app_data_dir.join("bg");
+    fs::create_dir_all(&bg_dir).map_err(|e| e.to_string())?;
+    let dest = bg_dir.join("fullscreen_bg.png");
+    if !dest.exists() {
+        let resource_dir = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
+        let src = resource_dir.join("public").join("catrace.png");
+        if src.exists() {
+            fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+        } else {
+            return Err(format!("Default background image not found: {}", src.display()));
+        }
+    }
+    Ok(dest.to_string_lossy().to_string())
+}
+
+/// 删除磁盘上的背景图文件（只删文件，保留目录）
+fn remove_bg_image_from_disk(app_data_dir: &Path) {
+    let bg_dir = app_data_dir.join("bg");
+    if bg_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&bg_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Err(e) = fs::remove_file(&path) {
+                        eprintln!("[remove_bg_image_from_disk] failed to delete {}: {}", path.display(), e);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 将磁盘上的图片文件读取为 data URL
+fn file_path_to_data_url(file_path: &str) -> Option<String> {
+    let path = Path::new(file_path);
+    if !path.exists() {
+        eprintln!("[file_path_to_data_url] file does NOT exist: {}", file_path);
+        return None;
+    }
+    let bytes = fs::read(path).ok()?;
+    let ext = path.extension()?.to_str()?;
+    let mime = match ext {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        _ => "image/png",
+    };
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Some(format!("data:{};base64,{}", mime, encoded))
+}
+
+/// 将 DB 中存储的 bg 值（文件路径或 data URL）解析为 data URL
+fn resolve_bg_for_frontend(raw: &str) -> Option<String> {
+    if raw.is_empty() {
+        None
+    } else if raw.starts_with("data:") {
+        Some(raw.to_string())
+    } else {
+        file_path_to_data_url(raw)
+    }
+}
+
 #[tauri::command]
 fn get_fullscreen_settings(db: tauri::State<db::Db>) -> serde_json::Value {
     let bg = db.get_setting("fullscreen_bg_image", "");
     let opacity: i64 = db.get_setting("fullscreen_opacity", "80").parse().unwrap_or(80);
-    serde_json::json!({ "bg_image": bg, "opacity": opacity })
+    let fit_mode = db.get_setting("fullscreen_fit_mode", "contain");
+    let element_transforms = db.get_setting("fullscreen_element_transforms", "");
+    let bg_data_url = resolve_bg_for_frontend(&bg).unwrap_or_default();
+    serde_json::json!({
+        "bg_image": bg_data_url,
+        "opacity": opacity,
+        "fit_mode": fit_mode,
+        "element_transforms": element_transforms,
+    })
 }
 
 #[tauri::command]
-fn set_fullscreen_settings(bg_image: String, opacity: i64, db: tauri::State<db::Db>) -> Result<(), String> {
-    db.set_setting("fullscreen_bg_image", &bg_image).map_err(|e| e.to_string())?;
-    db.set_setting("fullscreen_opacity", &opacity.to_string()).map_err(|e| e.to_string())
+fn set_fullscreen_settings(
+    bg_image: String,
+    opacity: i64,
+    fit_mode: String,
+    element_transforms: String,
+    db: tauri::State<db::Db>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+
+    if bg_image.is_empty() {
+        remove_bg_image_from_disk(&app_data_dir);
+        // 恢复默认背景图（bundled catrace.png）
+        match ensure_default_bg(&app_handle, &app_data_dir) {
+            Ok(default_path) => {
+                db.set_setting("fullscreen_bg_image", &default_path).map_err(|e| e.to_string())?;
+            }
+            Err(e) => {
+                eprintln!("[set_fullscreen_settings] ensure_default_bg failed: {}, clearing setting", e);
+                db.set_setting("fullscreen_bg_image", "").map_err(|e| e.to_string())?;
+            }
+        }
+    } else if bg_image.starts_with("data:") {
+        let file_path = save_bg_image_to_disk(&app_data_dir, &bg_image)?;
+        db.set_setting("fullscreen_bg_image", &file_path).map_err(|e| e.to_string())?;
+    } else {
+        db.set_setting("fullscreen_bg_image", &bg_image).map_err(|e| e.to_string())?;
+    }
+
+    db.set_setting("fullscreen_opacity", &opacity.to_string()).map_err(|e| e.to_string())?;
+    db.set_setting("fullscreen_fit_mode", &fit_mode).map_err(|e| e.to_string())?;
+    db.set_setting("fullscreen_element_transforms", &element_transforms).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -546,9 +706,12 @@ fn get_reminder_data(
 }
 
 #[tauri::command]
-fn close_reminder_window(label: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+fn close_reminder_window(label: String, app_handle: tauri::AppHandle, fullscreen_active: tauri::State<Arc<AtomicBool>>) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window(&label) {
         window.close().map_err(|e| e.to_string())?;
+    }
+    if label == "reminder-fullscreen" {
+        fullscreen_active.store(false, Ordering::SeqCst);
     }
     Ok(())
 }
@@ -559,9 +722,10 @@ fn test_notification(
     state: tauri::State<Arc<Mutex<ReminderState>>>,
     db: tauri::State<db::Db>,
     store: tauri::State<ReminderWindowStore>,
+    fullscreen_active: tauri::State<Arc<AtomicBool>>,
 ) {
     let locale = db.get_setting("locale", "zh-CN");
-    show_notification(&app_handle, 0, test_notify_msg(&locale), state.inner().clone(), &locale, &db, &store);
+    show_notification(&app_handle, 0, test_notify_msg(&locale), state.inner().clone(), &locale, &db, &store, fullscreen_active.inner().clone());
 }
 
 
@@ -578,6 +742,7 @@ fn show_notification(
     locale: &str,
     db: &db::Db,
     store: &ReminderWindowStore,
+    fullscreen_active: Arc<AtomicBool>,
 ) {
     let mode = db.get_setting("reminder_mode", "toast");
 
@@ -601,9 +766,11 @@ fn show_notification(
         }
         "fullscreen" => {
             let break_m: i64 = db.get_setting("break_minutes", "5").parse().unwrap_or(5);
-            let fullscreen_bg = db.get_setting("fullscreen_bg_image", "");
-            let fullscreen_bg_opt = if fullscreen_bg.is_empty() { None } else { Some(fullscreen_bg) };
+            let fullscreen_bg_raw = db.get_setting("fullscreen_bg_image", "");
+            let fullscreen_bg_opt = resolve_bg_for_frontend(&fullscreen_bg_raw);
             let fullscreen_opacity: i64 = db.get_setting("fullscreen_opacity", "80").parse().unwrap_or(80);
+            let fullscreen_fit_mode = db.get_setting("fullscreen_fit_mode", "contain");
+            let fullscreen_element_transforms = db.get_setting("fullscreen_element_transforms", "");
             create_fullscreen_window(
                 app_handle,
                 boundary,
@@ -612,8 +779,11 @@ fn show_notification(
                 break_m,
                 fullscreen_bg_opt,
                 fullscreen_opacity,
+                fullscreen_fit_mode,
+                fullscreen_element_transforms,
                 reminder_state,
                 store,
+                fullscreen_active,
             );
         }
         _ => {
@@ -708,6 +878,8 @@ fn create_popup_window(
         break_minutes: 0,
         fullscreen_bg: None,
         fullscreen_opacity: 0,
+        fullscreen_fit_mode: String::new(),
+        fullscreen_element_transforms: String::new(),
     };
     store.lock().unwrap().insert(label.to_string(), data);
 
@@ -783,10 +955,16 @@ fn create_fullscreen_window(
     break_minutes: i64,
     fullscreen_bg: Option<String>,
     fullscreen_opacity: i64,
+    fullscreen_fit_mode: String,
+    fullscreen_element_transforms: String,
     _reminder_state: Arc<Mutex<ReminderState>>,
     store: &ReminderWindowStore,
+    fullscreen_active: Arc<AtomicBool>,
 ) {
     let label = "reminder-fullscreen";
+
+    // 标记全屏窗口已打开，结算循环将停止计活跃
+    fullscreen_active.store(true, Ordering::SeqCst);
 
     let data = ReminderWindowData {
         boundary,
@@ -795,6 +973,8 @@ fn create_fullscreen_window(
         break_minutes,
         fullscreen_bg,
         fullscreen_opacity,
+        fullscreen_fit_mode,
+        fullscreen_element_transforms,
     };
     store.lock().unwrap().insert(label.to_string(), data);
 
@@ -873,6 +1053,7 @@ pub fn run() {
     });
 
     let reminder_state_clone = reminder_state.clone();
+    let fullscreen_active = Arc::new(AtomicBool::new(false));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -903,11 +1084,24 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir)?;
             let db_path = app_data_dir.join("catrace.db");
             let db = db::Db::new(&db_path).expect("Failed to initialize database");
+
+            // 首次启动：将 bundled catrace.png 复制为默认全屏背景
+            {
+                let current_bg = db.get_setting("fullscreen_bg_image", "");
+                if current_bg.is_empty() {
+                    match ensure_default_bg(app.app_handle(), &app_data_dir) {
+                        Ok(default_path) => { let _ = db.set_setting("fullscreen_bg_image", &default_path); }
+                        Err(e) => eprintln!("[startup] ensure_default_bg failed: {}", e),
+                    }
+                }
+            }
+
             let store: ReminderWindowStore = Arc::new(Mutex::new(HashMap::new()));
             app.manage(db.clone());
             app.manage(reminder_state_clone.clone());
             app.manage(state.clone());
             app.manage(store.clone());
+            app.manage(fullscreen_active.clone());
 
             // 每 2 秒采样鼠标位置（同步线程：DeviceState 在 Linux 上非 Send，不能放 async）
             thread::spawn(move || {
@@ -929,6 +1123,7 @@ pub fn run() {
             let app_handle = app.app_handle().clone();
             let reminder_state_for_settle = reminder_state_clone.clone();
             let store_for_settle = store.clone();
+            let fullscreen_active_for_settle = fullscreen_active.clone();
             tauri::async_runtime::spawn(async move {
                 // 计算距离下一个整分钟还有多少秒
                 let now = chrono::Local::now();
@@ -941,7 +1136,13 @@ pub fn run() {
                     let mut s = settle_state.lock().unwrap();
                     let video_enabled = db_clone.get_setting("video_active_enabled", "true") == "true";
                     let media_active = if video_enabled { is_media_active() } else { false };
-                    let active = s.count >= 3 || media_active;
+                    let is_fullscreen = fullscreen_active_for_settle.load(Ordering::SeqCst);
+                    // 全屏提醒期间：鼠标键盘不计活跃，视为休息
+                    let active = if is_fullscreen {
+                        false
+                    } else {
+                        s.count >= 3 || media_active
+                    };
                     let timestamp = chrono::Local::now().timestamp() / 60 * 60;
 
                     let process_name = match get_active_window() {
@@ -992,6 +1193,7 @@ pub fn run() {
                                                 &locale,
                                                 &db_clone,
                                                 &store_for_settle,
+                                                fullscreen_active_for_settle.clone(),
                                             );
                                             // 自动设置下次提醒间隔（默认3分钟）
                                             let interval_m: i64 = db_clone

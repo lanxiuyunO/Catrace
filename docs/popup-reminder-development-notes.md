@@ -399,3 +399,94 @@ if (reminder === 'popup' || reminder === 'fullscreen') {
 - `src/views/ReminderPopup.vue` - 弹窗 UI
 - `src/views/ReminderFullscreen.vue` - 全屏 UI
 - `src/views/Settings.vue` - 提醒模式设置
+
+---
+
+## 8. 全屏背景图架构
+
+### 8.1 存储方案
+
+全屏背景图采用**文件存储 + DB 路径引用**的方式，避免 SQLite 存储大 blob：
+
+```
+前端上传 data URL → Rust 解码 base64 → 写入磁盘文件 → DB 存文件路径
+前端读取 ← Rust 读取文件 → 编码为 data URL ← DB 读文件路径
+```
+
+关键函数：
+- `parse_data_url()` — 解析 data URL，返回 (扩展名, 二进制数据)
+- `save_bg_image_to_disk()` — 保存到 `app_data_dir/bg/fullscreen_bg.{ext}`
+- `file_path_to_data_url()` — 读取磁盘文件，编码为 data URL
+- `resolve_bg_for_frontend()` — 统一入口，处理空值 / data URL / 文件路径三种情况
+
+### 8.2 默认背景图
+
+首次启动时，`ensure_default_bg()` 将 bundled `public/catrace.png` 复制到 `app_data_dir/bg/fullscreen_bg.png`。如果资源文件不存在，返回 `Err` 并清空 DB 设置，避免存储无效路径。
+
+### 8.3 全屏窗口渲染
+
+ReminderFullscreen.vue 使用双层背景：
+- **底层** `.fullscreen-bg`：`filter: blur(40px) saturate(1.2)` + `transform: scale(1.05)`，模糊放大铺满
+- **上层** `.fullscreen-sharp`：原始图片居中 contain，清晰显示
+
+### 8.4 CSS 透明穿透
+
+进入全屏提醒路由时，`App.vue` 通过 `watch(isReminderRoute)` 切换 `html` 元素的 `reminder-transparent` class，将 `html/body/#app` 背景设为 `transparent !important`，让全屏背景图穿透显示。
+
+---
+
+## 9. 全屏提醒元素独立编辑
+
+### 9.1 功能概述
+
+全屏提醒中的每个元素（标题、正文、倒计时、按钮）可以独立调整位置、缩放和旋转，而不是整体调整。
+
+### 9.2 数据结构
+
+使用 JSON 字符串存储每个元素的变换信息，存储在 `fullscreen_element_transforms` 设置项中：
+
+```json
+{
+  "title": { "x": 50, "y": 20, "scale": 1.0, "rotate": 0 },
+  "body": { "x": 50, "y": 40, "scale": 1.0, "rotate": 0 },
+  "countdown": { "x": 50, "y": 60, "scale": 1.0, "rotate": 0 },
+  "actions": { "x": 50, "y": 80, "scale": 1.0, "rotate": 0 }
+}
+```
+
+- `x`, `y`：位置百分比（10-90）
+- `scale`：缩放比例（0.3-3.0）
+- `rotate`：旋转角度（-180 到 180 度）
+
+### 9.3 交互流程
+
+1. **进入编辑模式**：点击右上角锁图标
+2. **选择元素**：点击任意元素（标题/正文/倒计时/按钮）
+3. **调整位置**：拖动选中的元素
+4. **调整缩放**：鼠标滚轮或底部滑块
+5. **调整旋转**：底部滑块
+6. **退出编辑模式**：点击锁图标，自动保存
+
+### 9.4 视觉反馈
+
+- 编辑模式下：元素显示虚线边框
+- 选中元素：紫色实线边框 + 编辑工具栏
+- 拖动时：元素半透明
+
+### 9.5 TypeScript 类型定义
+
+```typescript
+interface ElementTransform {
+  x: number      // 10-90 百分比
+  y: number      // 10-90 百分比
+  scale: number  // 0.3-3.0
+  rotate: number // -180 到 180 度
+}
+
+interface ElementTransforms {
+  title: ElementTransform
+  body: ElementTransform
+  countdown: ElementTransform
+  actions: ElementTransform
+}
+```

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NSlider,
@@ -38,6 +38,12 @@ const reminderMode = ref('toast')
 const customBody = ref('')
 const fullscreenBg = ref('')
 const fullscreenOpacity = ref(80)
+const fullscreenFitMode = ref('contain')
+const fullscreenFitOptions = [
+  { label: () => t('settings.reminder.fitContain'), value: 'contain' },
+  { label: () => t('settings.reminder.fitCover'), value: 'cover' },
+  { label: () => t('settings.reminder.fitFill'), value: 'fill' },
+]
 const loading = ref({ config: false, autostart: false, silent: false, videoActive: false, locale: false, reminderMode: false, reminderText: false, fullscreen: false })
 const message = useMessage()
 const isConfigReady = ref(false)
@@ -93,8 +99,10 @@ onMounted(async () => {
     appVersion.value = v
     reminderMode.value = rm || 'toast'
     customBody.value = rt.body || ''
+    // 后端已将文件路径转为 data URL，直接使用
     fullscreenBg.value = fs.bg_image || ''
     fullscreenOpacity.value = Number(fs.opacity) || 80
+    fullscreenFitMode.value = fs.fit_mode || 'contain'
 
     // 如果 DB 里没有 locale，自动检测并保存
     if (!loc) {
@@ -187,17 +195,18 @@ watch(
 
 let fullscreenSaveTimer: ReturnType<typeof setTimeout> | null = null
 watch(
-  () => ({ bg: fullscreenBg.value, opacity: fullscreenOpacity.value }),
+  () => ({ bg: fullscreenBg.value, opacity: fullscreenOpacity.value, fitMode: fullscreenFitMode.value }),
   async (newVal, oldVal) => {
     if (!isConfigReady.value) return
-    if (newVal.bg === oldVal.bg && newVal.opacity === oldVal.opacity) return
+    if (newVal.bg === oldVal.bg && newVal.opacity === oldVal.opacity && newVal.fitMode === oldVal.fitMode) return
     if (fullscreenSaveTimer) clearTimeout(fullscreenSaveTimer)
     fullscreenSaveTimer = setTimeout(async () => {
       loading.value.fullscreen = true
       try {
-        await setFullscreenSettings(fullscreenBg.value, fullscreenOpacity.value)
+        await setFullscreenSettings(fullscreenBg.value, fullscreenOpacity.value, fullscreenFitMode.value, '')
         message.success(t('settings.messages.saved'))
       } catch (e) {
+        console.error('[Fullscreen] Save FAILED:', e)
         message.error(t('settings.messages.saveFailed'))
       } finally {
         loading.value.fullscreen = false
@@ -417,8 +426,6 @@ async function handleInstallUpdate() {
             />
           </div>
 
-          <!-- 全屏提醒设置暂时隐藏 -->
-          <!--
           <transition name="fade-slide">
             <div v-if="reminderMode === 'fullscreen'" class="fullscreen-section">
 
@@ -455,9 +462,18 @@ async function handleInstallUpdate() {
                   <span class="setting-value">{{ fullscreenOpacity }}%</span>
                 </div>
               </div>
+
+              <div class="setting-row">
+                <div class="setting-meta">
+                  <div class="setting-title">{{ t('settings.reminder.fullscreenFitModeTitle') }}</div>
+                  <div class="setting-desc">{{ t('settings.reminder.fullscreenFitModeDesc') }}</div>
+                </div>
+                <div class="setting-control">
+                  <n-select v-model:value="fullscreenFitMode" :options="fullscreenFitOptions" style="width: 140px;" />
+                </div>
+              </div>
             </div>
           </transition>
-          -->
 
           <div class="divider" />
 
@@ -970,6 +986,42 @@ async function handleInstallUpdate() {
 .fs-empty-hint {
   font-size: 12px;
   color: #8B7AAB;
+}
+
+/* 内容位置编辑器 */
+.content-pos-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.pos-preview {
+  position: relative;
+  width: 180px;
+  height: 101px;
+  border-radius: 8px;
+  background: #1a1a2e;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid #EBE6F2;
+  cursor: crosshair;
+  overflow: hidden;
+}
+.pos-dot {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #7C3AED;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: left 0.05s, top 0.05s;
+}
+.pos-reset {
+  font-size: 11px;
+  padding: 4px 10px;
 }
 
 /* 响应式 */

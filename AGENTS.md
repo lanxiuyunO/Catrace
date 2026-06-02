@@ -19,7 +19,6 @@ Catrace 是一款桌面端工具，帮助用户平衡工作与休息。
 ```
 .
 ├── README.md
-├── PLAN.md
 ├── AGENTS.md
 ├── package.json          # pnpm + Vite + Vue 3
 ├── vite.config.ts
@@ -56,7 +55,7 @@ Catrace 是一款桌面端工具，帮助用户平衡工作与休息。
 └── public/
 ```
 
-> **注意**：Rust 侧未按 PLAN.md 的分层目录（`input/`、`engine/` 等）实现，而是将所有逻辑集中在 `lib.rs` 中，通过模块级函数组织。
+> **注意**：Rust 侧未按原分层目录（`input/`、`engine/` 等）实现，而是将所有逻辑集中在 `lib.rs` 中，通过模块级函数组织。
 
 ---
 
@@ -115,6 +114,19 @@ Catrace 是一款桌面端工具，帮助用户平衡工作与休息。
 
 > 规律：活跃 block 完成后，**下一个活跃分钟**会弹；之后按 `snooze_interval_minutes` 间隔重复提醒。用户手动选择 5/10 分钟会覆盖自动间隔。但只要**当前分钟在休息**，立即停止提醒并清除 snooze；恢复活跃后重新判断。
 
+4. **全屏背景图存储**（`lib.rs`）
+   - 前端上传的 data URL 经 base64 解码后保存为磁盘文件（`app_data_dir/bg/fullscreen_bg.{ext}`），DB 只存文件路径，避免 SQLite 存储大 blob。
+   - 读取时通过 `resolve_bg_for_frontend()` 统一将文件路径转回 data URL 返回前端。
+   - 默认背景图使用 bundled `public/catrace.png`，首次启动时复制到 `app_data_dir/bg/`。
+   - 全屏提醒窗口使用双层背景：底层模糊放大铺满（`filter: blur(40px)`），上层清晰原图居中 contain。
+   - 进入全屏提醒路由时，`App.vue` 通过 CSS class 切换 `html/body/#app` 背景为透明，让全屏背景图穿透显示。
+
+5. **全屏提醒元素独立编辑**（`ReminderFullscreen.vue`）
+   - 每个元素（标题、正文、倒计时、按钮）可独立调整位置、缩放、旋转。
+   - 数据存储为 JSON 字符串 `fullscreen_element_transforms`，包含每个元素的 x, y, scale, rotate。
+   - 交互流程：点击右上角锁图标进入编辑模式 → 点击元素选中 → 拖动改变位置 / 滚轮调整缩放 / 滑块调整旋转 → 点击锁定保存。
+   - 编辑模式下元素显示虚线边框，选中元素显示紫色边框和编辑工具栏。
+
 ---
 
 ## 配置项
@@ -127,6 +139,11 @@ Catrace 是一款桌面端工具，帮助用户平衡工作与休息。
 | `silent_start` | 开机自启时不显示主窗口 | false |
 | `video_active_enabled` | 视频计入活跃（开启后看视频算活跃，活跃时长到达后仍会提醒休息） | true |
 | `locale` | 界面语言（zh-CN / en-US） | 自动检测系统语言，回退 zh-CN |
+| `reminder_mode` | 提醒模式（toast / popup / fullscreen） | toast |
+| `fullscreen_bg_image` | 全屏背景图（data URL 或文件路径） | bundled catrace.png |
+| `fullscreen_opacity` | 全屏遮罩透明度（0-100） | 80 |
+| `fullscreen_fit_mode` | 背景填充模式（contain / cover / fill） | contain |
+| `fullscreen_element_transforms` | 全屏元素变换（JSON，包含 title/body/countdown/actions 的 x,y,scale,rotate） | 默认居中 |
 
 **提醒操作（进程级状态，重启后重置）**
 
@@ -159,7 +176,7 @@ src-tauri/src/
 └── db.rs       -- rusqlite 读写封装 + 单元测试
 ```
 
-> 与 PLAN.md 的差异：原计划拆分为 `input/`、`engine/`、`notify.rs`、`commands.rs` 等模块，实际为了快速落地全部集中在 `lib.rs`。后续如需扩展可再拆分。
+> 原计划拆分为 `input/`、`engine/`、`notify.rs`、`commands.rs` 等模块，实际为了快速落地全部集中在 `lib.rs`。后续如需扩展可再拆分。
 
 ### 前端（Vue 3）
 
@@ -289,7 +306,7 @@ CREATE TABLE settings (
 | 24 | Windows Toast 通知带按钮（tauri-winrt-notification）                   | ✅ |
 | 25 | AUMID 注册：通知显示应用名称                                               | ✅ |
 | 26 | 弹窗提醒模式                                                          | ✅ |
-| 26 | 全屏提醒模式                                                          | ❌ |
+| 26 | 全屏提醒模式（双层背景 + 自定义背景图 + 透明度设置）                                  | ✅ |
 | 9 | Dashboard UI 初版（统计卡片 + 环形图 + 双栏布局）                              | ✅（已被步骤 11 取代） |
 | 18 | 记住窗口位置和大小，下次启动恢复                                                | ✅ |
 | 10 | 概览视图：前瞻式 block 切分列表（默认概览）                                       | ✅ |
@@ -316,6 +333,7 @@ CREATE TABLE settings (
 | 36 | 提醒模式切换（系统通知 / 弹窗提醒 / 全屏提醒），全屏背景图与透明度设置仅全屏模式下显示                  | ✅ |
 | 37 | 全屏背景图上传 UI 重设计：预览卡片 + 毛玻璃操作按钮 + 虚线拖拽区域                          | ✅ |
 | 38 | 文案统一：「通知」→「提醒」                                                  | ✅ |
+| 39 | 全屏提醒元素独立编辑：标题/正文/倒计时/按钮可独立调整位置、缩放、旋转                            | ✅ |
 
 ---
 
@@ -404,7 +422,7 @@ cd src-tauri && cargo test
 
 1. **代码已存在**：项目已完整初始化（Tauri / Vue / Vite / naive-ui），无需再执行框架初始化命令。
 2. **优先读代码再改**：Rust 逻辑集中在 `src-tauri/src/lib.rs`，前端逻辑在 `src/views/`、`src/components/`、`src/theme.ts`。
-3. **保持中文文档**：README、PLAN、AGENTS 均为中文，新增文档继续使用中文。
+3. **保持中文文档**：README、AGENTS 等文档均为中文，新增文档继续使用中文。
 4. **Timeline 实现方式**：详细视图使用 CSS Grid（24×60 的 `<div>` 网格），不是 SVG / Canvas / ECharts；概览视图使用前瞻式 block 切分**卡片网格**（CSS Grid `repeat(auto-fit, minmax(15.625rem, 1fr))`），点击卡片展开整行迷你色块。
 5. **应用分类已砍掉**：不再维护 `app_categories` 配置和 `category` 字段。
 6. **UI 主题**：见上文「UI 主题」一节；改 Dashboard 样式时同步检查 `theme.ts`、`App.vue`、`TimelineWindows.vue`。
