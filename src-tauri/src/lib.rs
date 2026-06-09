@@ -360,22 +360,22 @@ fn notify_body(locale: &str) -> &'static str {
 
 fn toast_snooze_5(locale: &str) -> &'static str {
     match locale {
-        "zh-CN" => "5分钟后提醒",
-        _ => "Remind in 5 min",
+        "zh-CN" => "稍后5分钟",
+        _ => "5 min",
     }
 }
 
 fn toast_snooze_10(locale: &str) -> &'static str {
     match locale {
-        "zh-CN" => "10分钟后提醒",
-        _ => "Remind in 10 min",
+        "zh-CN" => "稍后10分钟",
+        _ => "10 min",
     }
 }
 
 fn toast_skip(locale: &str) -> &'static str {
     match locale {
         "zh-CN" => "跳过本次",
-        _ => "Skip this time",
+        _ => "Skip",
     }
 }
 

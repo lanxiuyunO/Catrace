@@ -155,9 +155,9 @@ export default {
     hour: 'hr',
   },
   reminder: {
-    snooze5: 'Remind in 5 min',
-    snooze10: 'Remind in 10 min',
-    skip: 'Skip this time',
+    snooze5: '5 min',
+    snooze10: '10 min',
+    skip: 'Skip',
     countdown: 'Rest Countdown',
     countdownDone: 'Break complete',
     editMode: 'Edit Mode',

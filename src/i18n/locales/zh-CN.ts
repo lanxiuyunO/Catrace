@@ -155,8 +155,8 @@ export default {
     hour: '小时',
   },
   reminder: {
-    snooze5: '5分钟后提醒',
-    snooze10: '10分钟后提醒',
+    snooze5: '稍后5分钟',
+    snooze10: '稍后10分钟',
     skip: '跳过本次',
     countdown: '休息倒计时',
     countdownDone: '休息完成',
