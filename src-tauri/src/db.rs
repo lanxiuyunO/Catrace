@@ -2,6 +2,16 @@ use rusqlite::{Connection, Result};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+fn start_of_day_ts() -> i64 {
+    chrono::Local::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_local_timezone(chrono::Local)
+        .unwrap()
+        .timestamp()
+}
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -24,20 +34,23 @@ impl Db {
             )",
             [],
         )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS water_records (
+                timestamp INTEGER PRIMARY KEY
+            )",
+            [],
+        )?;
         // 兼容旧表，加列（已存在则忽略错误）
-        conn.execute("ALTER TABLE records ADD COLUMN process_name TEXT", []).ok();
-        conn.execute("ALTER TABLE records ADD COLUMN category TEXT", []).ok();
+        conn.execute("ALTER TABLE records ADD COLUMN process_name TEXT", [])
+            .ok();
+        conn.execute("ALTER TABLE records ADD COLUMN category TEXT", [])
+            .ok();
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
     }
 
-    pub fn insert_record(
-        &self,
-        timestamp: i64,
-        is_active: bool,
-        process_name: &str,
-    ) -> Result<()> {
+    pub fn insert_record(&self, timestamp: i64, is_active: bool, process_name: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO records (timestamp, is_active, process_name) VALUES (?1, ?2, ?3)",
@@ -100,7 +113,7 @@ impl Db {
     pub fn get_records_since(&self, start_timestamp: i64) -> Result<Vec<(i64, bool)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT timestamp, is_active FROM records WHERE timestamp >= ?1 ORDER BY timestamp"
+            "SELECT timestamp, is_active FROM records WHERE timestamp >= ?1 ORDER BY timestamp",
         )?;
         let rows = stmt.query_map([start_timestamp], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, i32>(1)? == 1))
@@ -121,7 +134,7 @@ impl Db {
         let mut stmt = conn.prepare(
             "SELECT COALESCE(process_name, 'unknown'), COUNT(*) FROM records 
              WHERE timestamp >= ?1 AND is_active = 1 
-             GROUP BY process_name"
+             GROUP BY process_name",
         )?;
         let rows = stmt.query_map([start_of_day], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
@@ -129,15 +142,68 @@ impl Db {
         rows.collect::<Result<Vec<_>>>()
     }
 
+    // ------------------------------------------------------------------
+    // 喝水记录
+    // ------------------------------------------------------------------
+
+    pub fn record_water(&self, timestamp: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO water_records (timestamp) VALUES (?1)",
+            [timestamp],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_last_water(&self) -> Option<i64> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = match conn
+            .prepare("SELECT timestamp FROM water_records ORDER BY timestamp DESC LIMIT 1")
+        {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let mut rows = match stmt.query([]) {
+            Ok(r) => r,
+            Err(_) => return None,
+        };
+        rows.next().ok().flatten().and_then(|row| row.get(0).ok())
+    }
+
+    pub fn get_today_water_count(&self) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let start_of_day = start_of_day_ts();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM water_records WHERE timestamp >= ?1",
+            [start_of_day],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    pub fn get_today_water_records(&self) -> Result<Vec<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let start_of_day = start_of_day_ts();
+        let mut stmt = conn.prepare(
+            "SELECT timestamp FROM water_records WHERE timestamp >= ?1 ORDER BY timestamp ASC",
+        )?;
+        let rows = stmt.query_map([start_of_day], |row| row.get::<_, i64>(0))?;
+        rows.collect::<Result<Vec<_>>>()
+    }
+
+    pub fn delete_last_water(&self) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let start_of_day = start_of_day_ts();
+        let deleted = conn.execute(
+            "DELETE FROM water_records WHERE timestamp = (SELECT MAX(timestamp) FROM water_records WHERE timestamp >= ?1)",
+            [start_of_day],
+        )?;
+        Ok(deleted > 0)
+    }
+
     /// 获取从今天首个记录到最新记录的每分钟数据（缺失视为休息）
     fn get_today_minutes(&self) -> Result<Vec<(i64, bool)>> {
-        let start_of_day = chrono::Local::now()
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_local_timezone(chrono::Local)
-            .unwrap()
-            .timestamp();
+        let start_of_day = start_of_day_ts();
 
         let records = self.get_records_since(start_of_day)?;
         if records.is_empty() {
@@ -166,7 +232,11 @@ impl Db {
     /// 检查是否应该提醒
     /// 返回 (should_notify, boundary_timestamp)
     /// boundary_timestamp 保留用于定位触发提醒的 block 边界（lib.rs 已不再做重）
-    pub fn check_should_notify(&self, window_minutes: i64, break_minutes: i64) -> Result<(bool, Option<i64>)> {
+    pub fn check_should_notify(
+        &self,
+        window_minutes: i64,
+        break_minutes: i64,
+    ) -> Result<(bool, Option<i64>)> {
         let records = self.get_today_minutes()?;
         if records.is_empty() {
             return Ok((false, None));
@@ -307,16 +377,6 @@ fn compute_completed_blocks(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn start_of_day_ts() -> i64 {
-        chrono::Local::now()
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_local_timezone(chrono::Local)
-            .unwrap()
-            .timestamp()
-    }
 
     #[test]
     fn test_notify_after_active_block_completes() {
@@ -561,9 +621,7 @@ mod tests {
 
     #[test]
     fn test_compute_blocks_all_active() {
-        let records: Vec<(i64, bool)> = (0..100)
-            .map(|i| (i as i64 * 60, true))
-            .collect();
+        let records: Vec<(i64, bool)> = (0..100).map(|i| (i as i64 * 60, true)).collect();
 
         let (blocks, current) = compute_completed_blocks(&records, 45, 5);
         assert_eq!(blocks.len(), 2);
@@ -578,9 +636,7 @@ mod tests {
 
     #[test]
     fn test_compute_blocks_all_rest() {
-        let records: Vec<(i64, bool)> = (0..20)
-            .map(|i| (i as i64 * 60, false))
-            .collect();
+        let records: Vec<(i64, bool)> = (0..20).map(|i| (i as i64 * 60, false)).collect();
 
         let (blocks, current) = compute_completed_blocks(&records, 45, 5);
         assert_eq!(blocks.len(), 1);
@@ -588,5 +644,47 @@ mod tests {
         assert_eq!(blocks[0].start, 0);
         assert_eq!(blocks[0].end, 20);
         assert_eq!(current, 20);
+    }
+
+    #[test]
+    fn test_water_records() {
+        let db = Db::new(Path::new(":memory:")).unwrap();
+        let base = start_of_day_ts();
+
+        assert_eq!(db.get_last_water(), None);
+        assert_eq!(db.get_today_water_count().unwrap(), 0);
+
+        db.record_water(base + 60).unwrap();
+        assert_eq!(db.get_last_water(), Some(base + 60));
+        assert_eq!(db.get_today_water_count().unwrap(), 1);
+
+        // 同分钟去重
+        db.record_water(base + 60).unwrap();
+        assert_eq!(db.get_today_water_count().unwrap(), 1);
+
+        db.record_water(base + 120).unwrap();
+        assert_eq!(db.get_last_water(), Some(base + 120));
+        assert_eq!(db.get_today_water_count().unwrap(), 2);
+
+        let records = db.get_today_water_records().unwrap();
+        assert_eq!(records, vec![base + 60, base + 120]);
+
+        // 昨天的记录不应出现在今日列表中
+        db.record_water(base - 86400).unwrap();
+        let records = db.get_today_water_records().unwrap();
+        assert_eq!(records, vec![base + 60, base + 120]);
+
+        // 删除最近一次应只删今天的，不影响昨天记录
+        assert!(db.delete_last_water().unwrap());
+        assert_eq!(db.get_last_water(), Some(base + 60));
+        assert_eq!(db.get_today_water_count().unwrap(), 1);
+
+        // 删除 today's 最后一条后再删应返回 false
+        assert!(db.delete_last_water().unwrap());
+        assert!(!db.delete_last_water().unwrap());
+        assert_eq!(db.get_today_water_count().unwrap(), 0);
+
+        // 昨天的记录仍在
+        assert_eq!(db.get_last_water(), Some(base - 86400));
     }
 }

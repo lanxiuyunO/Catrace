@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from "vue";
+import { ref, onActivated, onDeactivated, computed } from "vue";
 import { useI18n } from 'vue-i18n'
 import { NCard, NRadioGroup, NRadioButton, NSwitch } from "naive-ui";
-import { getTodayStats, getTodayRecords, getConfig, getHideStats, setHideStats } from "../api/tauri";
+import { getTodayStats, getTodayRecords, getConfig, getHideStats, setHideStats, getWaterSettings } from "../api/tauri";
 import Timeline from "../components/Timeline.vue";
 import TimelineWindows from "../components/TimelineWindows.vue";
+import WaterWidget from "../components/WaterWidget.vue";
 import type { MinuteData } from "../components/Timeline.vue";
 import { computeTimeBlocks } from "../utils/timeBlocks";
 
@@ -15,6 +16,7 @@ const records = ref<Map<number, boolean>>(new Map());
 const config = ref({ window_minutes: 45, break_minutes: 5 });
 const timelineMode = ref<"grid" | "segments">("segments");
 const hideStats = ref(false);
+const waterEnabled = ref(true);
 
 async function toggleHideStats(val: boolean) {
   try {
@@ -112,12 +114,13 @@ function fmtDuration(minutes: number): string {
 
 async function loadData() {
   try {
-    const [c, hs] = await Promise.all([getConfig(), getHideStats()]);
+    const [c, hs, ws] = await Promise.all([getConfig(), getHideStats(), getWaterSettings()]);
     config.value = {
       window_minutes: Number(c.window_minutes),
       break_minutes: Number(c.break_minutes),
     };
     hideStats.value = hs;
+    waterEnabled.value = ws.enabled;
     stats.value = await getTodayStats();
     const raw = await getTodayRecords();
     const map = new Map<number, boolean>();
@@ -132,12 +135,14 @@ async function loadData() {
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-onMounted(() => {
+onActivated(() => {
   loadData();
-  pollTimer = setInterval(loadData, 10000);
+  if (!pollTimer) {
+    pollTimer = setInterval(loadData, 10000);
+  }
 });
 
-onUnmounted(() => {
+onDeactivated(() => {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -207,6 +212,11 @@ onUnmounted(() => {
           {{ activeBlockCount }}<span v-if="t('dashboard.stats.blocksUnit')" class="stat-unit">{{ t('dashboard.stats.blocksUnit') }}</span>
         </p>
       </div>
+    </section>
+
+    <!-- 小组件网格：与 stats 独立成行，支持后续扩展更多卡片 -->
+    <section v-if="waterEnabled" class="widget-grid">
+      <WaterWidget class="widget-card" />
     </section>
 
     <n-card class="panel" :bordered="false">
@@ -293,6 +303,18 @@ onUnmounted(() => {
   .stats {
     grid-template-columns: 1fr;
   }
+}
+
+.widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+  align-items: stretch;
+}
+
+.widget-card {
+  min-width: 0;
 }
 
 .stat {

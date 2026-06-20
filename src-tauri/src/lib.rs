@@ -2,6 +2,7 @@ mod db;
 mod reminder;
 mod reminder_toast;
 mod report;
+mod water;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
@@ -9,18 +10,18 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use active_win_pos_rs::get_active_window;
+use base64::Engine;
+use chrono::Timelike;
 use device_query::{DeviceQuery, DeviceState};
 #[cfg(not(target_os = "macos"))]
 use rdev::{listen, EventType};
-use active_win_pos_rs::get_active_window;
-use chrono::Timelike;
-use tauri::Manager;
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::TrayIconBuilder;
-use tokio::time::interval;
-use base64::Engine;
 use std::fs;
 use std::path::Path;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::Manager;
+use tokio::time::interval;
 // 窗口状态由 tauri-plugin-window-state 自动管理（启动恢复 / 退出保存）
 
 // ------------------------------------------------------------------
@@ -52,17 +53,41 @@ fn check_media_active_by_keywords() -> (bool, Option<String>, String, String, St
             let path_lower = win.process_path.to_string_lossy().to_lowercase();
 
             let video_site_keywords = [
-                "youtube", "bilibili", "netflix", "twitch",
-                "爱奇艺", "腾讯视频", "优酷", "芒果tv",
-                "disney+", "hbo max", "prime video", "hulu",
-                "crunchyroll", "niconico", "dailymotion", "vimeo",
-                "live", "直播",
+                "youtube",
+                "bilibili",
+                "netflix",
+                "twitch",
+                "爱奇艺",
+                "腾讯视频",
+                "优酷",
+                "芒果tv",
+                "disney+",
+                "hbo max",
+                "prime video",
+                "hulu",
+                "crunchyroll",
+                "niconico",
+                "dailymotion",
+                "vimeo",
+                "live",
+                "直播",
             ];
             let video_player_keywords = [
-                "vlc", "mpv", "potplayer", "mpc-hc", "mpc-be",
-                "kmplayer", "gom", "mx player", "infuse",
-                "iina", "quicktime", "movies & tv", "电影和电视",
-                "windows media player", "媒体播放器",
+                "vlc",
+                "mpv",
+                "potplayer",
+                "mpc-hc",
+                "mpc-be",
+                "kmplayer",
+                "gom",
+                "mx player",
+                "infuse",
+                "iina",
+                "quicktime",
+                "movies & tv",
+                "电影和电视",
+                "windows media player",
+                "媒体播放器",
             ];
 
             let matched_site = video_site_keywords
@@ -178,9 +203,15 @@ fn try_media_session_active() -> Option<bool> {
                 let count = sessions.Size()?;
 
                 for i in 0..count {
-                    let Ok(session) = sessions.GetAt(i) else { continue };
-                    let Ok(playback_info) = session.GetPlaybackInfo() else { continue };
-                    let Ok(status) = playback_info.PlaybackStatus() else { continue };
+                    let Ok(session) = sessions.GetAt(i) else {
+                        continue;
+                    };
+                    let Ok(playback_info) = session.GetPlaybackInfo() else {
+                        continue;
+                    };
+                    let Ok(status) = playback_info.PlaybackStatus() else {
+                        continue;
+                    };
 
                     if status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
                         return Ok(true);
@@ -242,22 +273,26 @@ fn get_media_sessions_debug_inner() -> Result<(bool, Vec<MediaSessionInfo>), Str
 
     let async_op = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
         .map_err(|e| format!("RequestAsync failed: {}", e))?;
-    let manager = async_op.get()
+    let manager = async_op
+        .get()
         .map_err(|e| format!("get manager failed: {}", e))?;
-    let sessions = manager.GetSessions()
+    let sessions = manager
+        .GetSessions()
         .map_err(|e| format!("GetSessions failed: {}", e))?;
-    let count = sessions.Size()
-        .map_err(|e| format!("Size failed: {}", e))?;
+    let count = sessions.Size().map_err(|e| format!("Size failed: {}", e))?;
 
     let mut has_playing = false;
     let mut infos = Vec::new();
 
     for i in 0..count {
-        let session = sessions.GetAt(i)
+        let session = sessions
+            .GetAt(i)
             .map_err(|e| format!("GetAt({}) failed: {}", i, e))?;
-        let playback_info = session.GetPlaybackInfo()
+        let playback_info = session
+            .GetPlaybackInfo()
             .map_err(|e| format!("GetPlaybackInfo failed: {}", e))?;
-        let status = playback_info.PlaybackStatus()
+        let status = playback_info
+            .PlaybackStatus()
             .map_err(|e| format!("PlaybackStatus failed: {}", e))?;
 
         let status_str = match status {
@@ -315,7 +350,6 @@ fn is_media_active() -> bool {
     is_media_active_by_keywords()
 }
 
-
 #[derive(Default)]
 pub struct ActivityState {
     pub count: u32,
@@ -324,11 +358,13 @@ pub struct ActivityState {
 }
 
 use reminder::ReminderState;
+use water::WaterReminderState;
 
 // ---------- 提醒窗口数据 ----------
 
 #[derive(Default, serde::Serialize, Clone)]
 pub struct ReminderWindowData {
+    pub kind: String,
     pub boundary: i64,
     pub title: String,
     pub body: String,
@@ -405,20 +441,25 @@ async fn get_video_debug_info(
     let gsmtcsm_result = get_media_sessions_debug();
 
     #[cfg(windows)]
-    let (gsmtcsm_available, gsmtcsm_session_count, gsmtcsm_sessions, gsmtcsm_has_playing, gsmtcsm_error) =
-        match gsmtcsm_result {
-            Ok((has_playing, sessions)) => (
-                true,
-                sessions.len() as u32,
-                sessions,
-                has_playing,
-                None,
-            ),
-            Err(e) => (false, 0, Vec::new(), false, Some(e)),
-        };
+    let (
+        gsmtcsm_available,
+        gsmtcsm_session_count,
+        gsmtcsm_sessions,
+        gsmtcsm_has_playing,
+        gsmtcsm_error,
+    ) = match gsmtcsm_result {
+        Ok((has_playing, sessions)) => (true, sessions.len() as u32, sessions, has_playing, None),
+        Err(e) => (false, 0, Vec::new(), false, Some(e)),
+    };
 
     #[cfg(not(windows))]
-    let (gsmtcsm_available, gsmtcsm_session_count, gsmtcsm_sessions, gsmtcsm_has_playing, gsmtcsm_error) = (
+    let (
+        gsmtcsm_available,
+        gsmtcsm_session_count,
+        gsmtcsm_sessions,
+        gsmtcsm_has_playing,
+        gsmtcsm_error,
+    ) = (
         false,
         0,
         Vec::new(),
@@ -482,7 +523,10 @@ fn set_toast_debug_mode(enabled: bool, db: tauri::State<db::Db>) -> Result<(), S
 fn get_config(db: tauri::State<db::Db>) -> serde_json::Value {
     let window: i64 = db.get_setting("window_minutes", "45").parse().unwrap_or(45);
     let break_m: i64 = db.get_setting("break_minutes", "5").parse().unwrap_or(5);
-    let snooze_interval: i64 = db.get_setting("snooze_interval_minutes", "3").parse().unwrap_or(3);
+    let snooze_interval: i64 = db
+        .get_setting("snooze_interval_minutes", "3")
+        .parse()
+        .unwrap_or(3);
     serde_json::json!({ "window_minutes": window, "break_minutes": break_m, "snooze_interval_minutes": snooze_interval })
 }
 
@@ -496,7 +540,10 @@ fn set_config(config: serde_json::Value, db: tauri::State<db::Db>) -> Result<(),
         db.set_setting("break_minutes", &v.to_string())
             .map_err(|e| e.to_string())?;
     }
-    if let Some(v) = config.get("snooze_interval_minutes").and_then(|v| v.as_i64()) {
+    if let Some(v) = config
+        .get("snooze_interval_minutes")
+        .and_then(|v| v.as_i64())
+    {
         db.set_setting("snooze_interval_minutes", &v.to_string())
             .map_err(|e| e.to_string())?;
     }
@@ -504,7 +551,11 @@ fn set_config(config: serde_json::Value, db: tauri::State<db::Db>) -> Result<(),
 }
 
 #[tauri::command]
-fn skip_reminder(boundary: i64, state: tauri::State<Arc<Mutex<ReminderState>>>, fullscreen_active: tauri::State<Arc<AtomicBool>>) {
+fn skip_reminder(
+    boundary: i64,
+    state: tauri::State<Arc<Mutex<ReminderState>>>,
+    fullscreen_active: tauri::State<Arc<AtomicBool>>,
+) {
     let mut s = state.lock().unwrap();
     s.skip_until_boundary = Some(boundary);
     s.snooze_until = None;
@@ -513,7 +564,11 @@ fn skip_reminder(boundary: i64, state: tauri::State<Arc<Mutex<ReminderState>>>, 
 }
 
 #[tauri::command]
-fn snooze_reminder(minutes: u64, state: tauri::State<Arc<Mutex<ReminderState>>>, fullscreen_active: tauri::State<Arc<AtomicBool>>) {
+fn snooze_reminder(
+    minutes: u64,
+    state: tauri::State<Arc<Mutex<ReminderState>>>,
+    fullscreen_active: tauri::State<Arc<AtomicBool>>,
+) {
     let mut s = state.lock().unwrap();
     s.snooze_until = Some(Instant::now() + Duration::from_secs(minutes * 60));
     // 用户操作后恢复正常活动追踪
@@ -535,7 +590,8 @@ fn get_today_records(db: tauri::State<db::Db>) -> Result<Vec<(i64, bool)>, Strin
         .and_local_timezone(chrono::Local)
         .unwrap()
         .timestamp();
-    db.get_records_since(start_of_day).map_err(|e| e.to_string())
+    db.get_records_since(start_of_day)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -587,13 +643,16 @@ fn hide_main_window(app_handle: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn get_locale(db: tauri::State<db::Db>) -> Option<String> {
     let val = db.get_setting("locale", "");
-    if val.is_empty() { None } else { Some(val) }
+    if val.is_empty() {
+        None
+    } else {
+        Some(val)
+    }
 }
 
 #[tauri::command]
 fn set_locale(locale: String, db: tauri::State<db::Db>) -> Result<(), String> {
-    db.set_setting("locale", &locale)
-        .map_err(|e| e.to_string())
+    db.set_setting("locale", &locale).map_err(|e| e.to_string())
 }
 
 // ---------- 提醒模式与自定义文本 ----------
@@ -618,8 +677,10 @@ fn get_reminder_text(db: tauri::State<db::Db>) -> serde_json::Value {
 
 #[tauri::command]
 fn set_reminder_text(title: String, body: String, db: tauri::State<db::Db>) -> Result<(), String> {
-    db.set_setting("reminder_title", &title).map_err(|e| e.to_string())?;
-    db.set_setting("reminder_body", &body).map_err(|e| e.to_string())
+    db.set_setting("reminder_title", &title)
+        .map_err(|e| e.to_string())?;
+    db.set_setting("reminder_body", &body)
+        .map_err(|e| e.to_string())
 }
 
 // ------------------------------------------------------------------
@@ -648,14 +709,16 @@ fn parse_data_url(data_url: &str) -> Option<(String, Vec<u8>)> {
         3 => format!("{}=", b64_data),
         _ => b64_data.to_string(),
     };
-    let decoded = base64::engine::general_purpose::STANDARD.decode(&padded).ok()?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(&padded)
+        .ok()?;
     Some((ext.to_string(), decoded))
 }
 
 /// 将 data URL 保存为磁盘文件，返回文件路径
 fn save_bg_image_to_disk(app_data_dir: &Path, data_url: &str) -> Result<String, String> {
-    let (ext, bytes) = parse_data_url(data_url)
-        .ok_or_else(|| "Invalid data URL format".to_string())?;
+    let (ext, bytes) =
+        parse_data_url(data_url).ok_or_else(|| "Invalid data URL format".to_string())?;
 
     let bg_dir = app_data_dir.join("bg");
     fs::create_dir_all(&bg_dir).map_err(|e| e.to_string())?;
@@ -689,7 +752,11 @@ fn remove_bg_image_from_disk(app_data_dir: &Path) {
                 let path = entry.path();
                 if path.is_file() {
                     if let Err(e) = fs::remove_file(&path) {
-                        eprintln!("[remove_bg_image_from_disk] failed to delete {}: {}", path.display(), e);
+                        eprintln!(
+                            "[remove_bg_image_from_disk] failed to delete {}: {}",
+                            path.display(),
+                            e
+                        );
                     }
                 }
             }
@@ -732,7 +799,10 @@ fn resolve_bg_for_frontend(raw: &str) -> Option<String> {
 #[tauri::command]
 fn get_fullscreen_settings(db: tauri::State<db::Db>) -> serde_json::Value {
     let bg = db.get_setting("fullscreen_bg_image", "");
-    let opacity: i64 = db.get_setting("fullscreen_opacity", "80").parse().unwrap_or(80);
+    let opacity: i64 = db
+        .get_setting("fullscreen_opacity", "80")
+        .parse()
+        .unwrap_or(80);
     let fit_mode = db.get_setting("fullscreen_fit_mode", "contain");
     let element_transforms = db.get_setting("fullscreen_element_transforms", "");
     let bg_data_url = resolve_bg_for_frontend(&bg).unwrap_or_default();
@@ -753,33 +823,46 @@ fn set_fullscreen_settings(
     db: tauri::State<db::Db>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
 
     if bg_image.is_empty() {
         remove_bg_image_from_disk(&app_data_dir);
         // 恢复默认背景图（bundled catrace.png）
         match ensure_default_bg(&app_data_dir) {
             Ok(default_path) => {
-                db.set_setting("fullscreen_bg_image", &default_path).map_err(|e| e.to_string())?;
+                db.set_setting("fullscreen_bg_image", &default_path)
+                    .map_err(|e| e.to_string())?;
             }
             Err(e) => {
-                eprintln!("[set_fullscreen_settings] ensure_default_bg failed: {}, clearing setting", e);
-                db.set_setting("fullscreen_bg_image", "").map_err(|e| e.to_string())?;
+                eprintln!(
+                    "[set_fullscreen_settings] ensure_default_bg failed: {}, clearing setting",
+                    e
+                );
+                db.set_setting("fullscreen_bg_image", "")
+                    .map_err(|e| e.to_string())?;
             }
         }
     } else if bg_image.starts_with("data:") {
         let file_path = save_bg_image_to_disk(&app_data_dir, &bg_image)?;
-        db.set_setting("fullscreen_bg_image", &file_path).map_err(|e| e.to_string())?;
+        db.set_setting("fullscreen_bg_image", &file_path)
+            .map_err(|e| e.to_string())?;
     } else {
-        db.set_setting("fullscreen_bg_image", &bg_image).map_err(|e| e.to_string())?;
+        db.set_setting("fullscreen_bg_image", &bg_image)
+            .map_err(|e| e.to_string())?;
     }
 
-    db.set_setting("fullscreen_opacity", &opacity.to_string()).map_err(|e| e.to_string())?;
-    db.set_setting("fullscreen_fit_mode", &fit_mode).map_err(|e| e.to_string())?;
+    db.set_setting("fullscreen_opacity", &opacity.to_string())
+        .map_err(|e| e.to_string())?;
+    db.set_setting("fullscreen_fit_mode", &fit_mode)
+        .map_err(|e| e.to_string())?;
     // 空字符串表示调用方不想修改元素变换（如 Settings.vue 只改背景/透明度/填充模式），
     // 此时保留已有值，避免覆盖用户在 ReminderFullscreen.vue 中调整的位置/缩放/旋转。
     if !element_transforms.is_empty() {
-        db.set_setting("fullscreen_element_transforms", &element_transforms).map_err(|e| e.to_string())?;
+        db.set_setting("fullscreen_element_transforms", &element_transforms)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -798,7 +881,11 @@ fn get_reminder_data(
 }
 
 #[tauri::command]
-fn close_reminder_window(label: String, app_handle: tauri::AppHandle, fullscreen_active: tauri::State<Arc<AtomicBool>>) -> Result<(), String> {
+fn close_reminder_window(
+    label: String,
+    app_handle: tauri::AppHandle,
+    fullscreen_active: tauri::State<Arc<AtomicBool>>,
+) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window(&label) {
         window.close().map_err(|e| e.to_string())?;
     }
@@ -817,10 +904,17 @@ fn test_notification(
     fullscreen_active: tauri::State<Arc<AtomicBool>>,
 ) {
     let locale = db.get_setting("locale", "zh-CN");
-    show_notification(&app_handle, 0, test_notify_msg(&locale), state.inner().clone(), &locale, &db, &store, fullscreen_active.inner().clone());
+    show_notification(
+        &app_handle,
+        0,
+        test_notify_msg(&locale),
+        state.inner().clone(),
+        &locale,
+        &db,
+        &store,
+        fullscreen_active.inner().clone(),
+    );
 }
-
-
 
 // ------------------------------------------------------------------
 // 通知：统一入口（支持 toast / popup / fullscreen）
@@ -860,7 +954,10 @@ fn show_notification(
             let break_m: i64 = db.get_setting("break_minutes", "5").parse().unwrap_or(5);
             let fullscreen_bg_raw = db.get_setting("fullscreen_bg_image", "");
             let fullscreen_bg_opt = resolve_bg_for_frontend(&fullscreen_bg_raw);
-            let fullscreen_opacity: i64 = db.get_setting("fullscreen_opacity", "80").parse().unwrap_or(80);
+            let fullscreen_opacity: i64 = db
+                .get_setting("fullscreen_opacity", "80")
+                .parse()
+                .unwrap_or(80);
             let fullscreen_fit_mode = db.get_setting("fullscreen_fit_mode", "contain");
             let fullscreen_element_transforms = db.get_setting("fullscreen_element_transforms", "");
             create_fullscreen_window(
@@ -880,7 +977,7 @@ fn show_notification(
         }
         _ => {
             // toast（默认）：使用右下角自定义 Vue 通知窗口
-            reminder_toast::create_toast_window(app_handle, boundary, &title, &body, reminder_state, store);
+            reminder_toast::create_toast_window(app_handle, boundary, &title, &body, "rest", store);
         }
     }
 }
@@ -896,6 +993,7 @@ fn create_popup_window(
     let label = "reminder-popup";
 
     let data = ReminderWindowData {
+        kind: "rest".to_string(),
         boundary,
         title: title.to_string(),
         body: body.to_string(),
@@ -913,12 +1011,17 @@ fn create_popup_window(
     if let Some(window) = app_handle.get_webview_window(label) {
         let _ = window.hide();
         if let Some(main) = app_handle.get_webview_window("main") {
-            if let (Ok(pos), Ok(size), Ok(sf)) = (main.outer_position(), main.outer_size(), main.scale_factor()) {
+            if let (Ok(pos), Ok(size), Ok(sf)) = (
+                main.outer_position(),
+                main.outer_size(),
+                main.scale_factor(),
+            ) {
                 let pw = 440.0;
                 let ph = 300.0;
                 let x = pos.x as f64 / sf + (size.width as f64 / sf - pw) / 2.0;
                 let y = pos.y as f64 / sf + (size.height as f64 / sf - ph) / 2.0;
-                let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+                let _ =
+                    window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
             }
         }
         let _ = window.show();
@@ -934,27 +1037,35 @@ fn create_popup_window(
 
     tauri::async_runtime::spawn(async move {
         let builder = tauri::WebviewWindowBuilder::new(
-                &app,
-                label,
-                tauri::WebviewUrl::App("index.html?reminder=popup".into()),
-            )
-            .title("Catrace")
-            .inner_size(440.0, 300.0)
-            .decorations(false)
-            .always_on_top(true)
-            .visible(false)
-            .skip_taskbar(true)
-            .resizable(false);
+            &app,
+            label,
+            tauri::WebviewUrl::App("index.html?reminder=popup".into()),
+        )
+        .title("Catrace")
+        .inner_size(440.0, 300.0)
+        .decorations(false)
+        .always_on_top(true)
+        .visible(false)
+        .skip_taskbar(true)
+        .resizable(false);
 
         match builder.build() {
             Ok(window) => {
                 if let Some(main) = app.get_webview_window("main") {
-                    if let (Ok(pos), Ok(size), Ok(sf)) = (main.outer_position(), main.outer_size(), main.scale_factor()) {
+                    if let (Ok(pos), Ok(size), Ok(sf)) = (
+                        main.outer_position(),
+                        main.outer_size(),
+                        main.scale_factor(),
+                    ) {
                         let pw = 440.0;
                         let ph = 300.0;
                         let x = pos.x as f64 / sf + (size.width as f64 / sf - pw) / 2.0;
                         let y = pos.y as f64 / sf + (size.height as f64 / sf - ph) / 2.0;
-                        let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+                        let _ =
+                            window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+                                x,
+                                y,
+                            }));
                     }
                 }
                 let _ = window.show();
@@ -991,6 +1102,7 @@ fn create_fullscreen_window(
     fullscreen_active.store(true, Ordering::SeqCst);
 
     let data = ReminderWindowData {
+        kind: "rest".to_string(),
         boundary,
         title: title.to_string(),
         body: body.to_string(),
@@ -1051,6 +1163,7 @@ fn create_fullscreen_window(
 pub fn run() {
     let state = Arc::new(Mutex::new(ActivityState::default()));
     let reminder_state = Arc::new(Mutex::new(ReminderState::default()));
+    let water_state = Arc::new(Mutex::new(WaterReminderState::default()));
 
     // 键盘监听线程
     // macOS：rdev 在解析按键名称时会调用 TISGetInputSourceProperty，
@@ -1064,7 +1177,9 @@ pub fn run() {
             let device_state = DeviceState::new();
             let _guard = device_state.on_key_down(move |_: &Keycode| {
                 let mut s = keyboard_state.lock().unwrap();
-                if s.key_debounce.map_or(true, |t| t.elapsed() > Duration::from_secs(2)) {
+                if s.key_debounce
+                    .map_or(true, |t| t.elapsed() > Duration::from_secs(2))
+                {
                     s.count += 1;
                     s.key_debounce = Some(Instant::now());
                 }
@@ -1081,7 +1196,9 @@ pub fn run() {
             listen(move |event| {
                 if let EventType::KeyPress(_) = event.event_type {
                     let mut s = keyboard_state.lock().unwrap();
-                    if s.key_debounce.map_or(true, |t| t.elapsed() > Duration::from_secs(2)) {
+                    if s.key_debounce
+                        .map_or(true, |t| t.elapsed() > Duration::from_secs(2))
+                    {
                         s.count += 1;
                         s.key_debounce = Some(Instant::now());
                     }
@@ -1092,6 +1209,7 @@ pub fn run() {
     }
 
     let reminder_state_clone = reminder_state.clone();
+    let water_state_clone = water_state.clone();
     let fullscreen_active = Arc::new(AtomicBool::new(false));
 
     tauri::Builder::default()
@@ -1125,7 +1243,9 @@ pub fn run() {
                 let current_bg = db.get_setting("fullscreen_bg_image", "");
                 if current_bg.is_empty() {
                     match ensure_default_bg(&app_data_dir) {
-                        Ok(default_path) => { let _ = db.set_setting("fullscreen_bg_image", &default_path); }
+                        Ok(default_path) => {
+                            let _ = db.set_setting("fullscreen_bg_image", &default_path);
+                        }
                         Err(e) => eprintln!("[startup] ensure_default_bg failed: {}", e),
                     }
                 }
@@ -1137,6 +1257,7 @@ pub fn run() {
             let store: ReminderWindowStore = Arc::new(Mutex::new(HashMap::new()));
             app.manage(db.clone());
             app.manage(reminder_state_clone.clone());
+            app.manage(water_state_clone.clone());
             app.manage(state.clone());
             app.manage(store.clone());
             app.manage(fullscreen_active.clone());
@@ -1160,6 +1281,7 @@ pub fn run() {
             let db_clone = db.clone();
             let app_handle = app.app_handle().clone();
             let reminder_state_for_settle = reminder_state_clone.clone();
+            let water_state_for_settle = water_state_clone.clone();
             let store_for_settle = store.clone();
             let fullscreen_active_for_settle = fullscreen_active.clone();
             tauri::async_runtime::spawn(async move {
@@ -1173,8 +1295,13 @@ pub fn run() {
                     minute.tick().await;
                     // 在获取 settle_state 锁之前，先完成所有可能阻塞的系统调用。
                     // 如果 is_media_active() 或 get_active_window() 卡住，不会阻塞键鼠计数线程。
-                    let video_enabled = db_clone.get_setting("video_active_enabled", "true") == "true";
-                    let media_active = if video_enabled { is_media_active() } else { false };
+                    let video_enabled =
+                        db_clone.get_setting("video_active_enabled", "true") == "true";
+                    let media_active = if video_enabled {
+                        is_media_active()
+                    } else {
+                        false
+                    };
                     let is_fullscreen = fullscreen_active_for_settle.load(Ordering::SeqCst);
                     let process_name = match get_active_window() {
                         Ok(win) => std::path::Path::new(&win.process_path)
@@ -1241,7 +1368,10 @@ pub fn run() {
                                                 .parse()
                                                 .unwrap_or(3);
                                             let mut rs = reminder_state_for_settle.lock().unwrap();
-                                            rs.snooze_until = Some(Instant::now() + Duration::from_secs((interval_m * 60) as u64));
+                                            rs.snooze_until = Some(
+                                                Instant::now()
+                                                    + Duration::from_secs((interval_m * 60) as u64),
+                                            );
                                         }
                                     }
                                 }
@@ -1253,6 +1383,16 @@ pub fn run() {
                         let mut r = reminder_state_for_settle.lock().unwrap();
                         r.snooze_until = None;
                     }
+
+                    // 喝水提醒逻辑（仅在当前分钟活跃时检查）
+                    water::check_and_notify(
+                        active,
+                        &db_clone,
+                        &water_state_for_settle,
+                        &app_handle,
+                        &locale,
+                        &store_for_settle,
+                    );
 
                     s.count = 0;
                 }
@@ -1275,7 +1415,6 @@ pub fn run() {
                 }
             });
 
-
             // 系统托盘：先移除可能已存在的旧图标，防止重复创建
             let _ = app.remove_tray_by_id("main");
 
@@ -1286,17 +1425,15 @@ pub fn run() {
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "quit" => app.exit(0),
-                        _ => {}
                     }
+                    "quit" => app.exit(0),
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
@@ -1312,23 +1449,45 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_config, set_config,
-            skip_reminder, snooze_reminder,
-            get_silent_start, set_silent_start,
-            get_hide_stats, set_hide_stats,
-            get_locale, set_locale,
-            get_video_active_enabled, set_video_active_enabled,
-            get_toast_debug_mode, set_toast_debug_mode,
-            show_main_window, hide_main_window,
-            get_today_stats, get_today_records, get_app_stats,
+            get_config,
+            set_config,
+            skip_reminder,
+            snooze_reminder,
+            get_silent_start,
+            set_silent_start,
+            get_hide_stats,
+            set_hide_stats,
+            get_locale,
+            set_locale,
+            get_video_active_enabled,
+            set_video_active_enabled,
+            get_toast_debug_mode,
+            set_toast_debug_mode,
+            show_main_window,
+            hide_main_window,
+            get_today_stats,
+            get_today_records,
+            get_app_stats,
             test_notification,
+            water::test_water_notification,
             get_video_debug_info,
-            get_reminder_mode, set_reminder_mode,
-            get_reminder_text, set_reminder_text,
-            get_fullscreen_settings, set_fullscreen_settings,
+            get_reminder_mode,
+            set_reminder_mode,
+            get_reminder_text,
+            set_reminder_text,
+            get_fullscreen_settings,
+            set_fullscreen_settings,
             get_mouse_position,
             get_reminder_data,
             close_reminder_window,
+            water::get_water_settings,
+            water::set_water_settings,
+            water::record_water,
+            water::get_water_stats,
+            water::get_water_records,
+            water::delete_last_water,
+            water::snooze_water_reminder,
+            water::skip_water_reminder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

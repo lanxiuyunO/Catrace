@@ -20,10 +20,11 @@ import {
   getSilentStart, setSilentStart,
   getVideoActiveEnabled, setVideoActiveEnabled,
   getLocale, setLocale,
-  testNotification,
+  testNotification, testWaterNotification,
   getReminderMode, setReminderMode,
   getReminderText, setReminderText,
   getFullscreenSettings, setFullscreenSettings,
+  getWaterSettings, setWaterSettings,
 } from '../api/tauri'
 import i18n from '../i18n'
 
@@ -33,6 +34,8 @@ const config = ref({ window_minutes: 45, break_minutes: 5, snooze_interval_minut
 const autostart = ref(false)
 const silentStart = ref(false)
 const videoActiveEnabled = ref(true)
+const waterEnabled = ref(true)
+const waterInterval = ref(60)
 const localeVal = ref('zh-CN')
 const reminderMode = ref('toast')
 const customBody = ref('')
@@ -44,7 +47,7 @@ const fullscreenFitOptions = [
   { label: () => t('settings.reminder.fitCover'), value: 'cover' },
   { label: () => t('settings.reminder.fitFill'), value: 'fill' },
 ]
-const loading = ref({ config: false, autostart: false, silent: false, videoActive: false, locale: false, reminderMode: false, reminderText: false, fullscreen: false })
+const loading = ref({ config: false, autostart: false, silent: false, videoActive: false, water: false, locale: false, reminderMode: false, reminderText: false, fullscreen: false })
 const message = useMessage()
 const isConfigReady = ref(false)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -77,12 +80,13 @@ function detectDefaultLocale(): string {
 
 onMounted(async () => {
   try {
-    const [c, a, s, v, va, loc, rm, rt, fs] = await Promise.all([
+    const [c, a, s, v, va, ws, loc, rm, rt, fs] = await Promise.all([
       getConfig(),
       isEnabled(),
       getSilentStart(),
       getVersion(),
       getVideoActiveEnabled(),
+      getWaterSettings(),
       getLocale(),
       getReminderMode(),
       getReminderText(),
@@ -96,6 +100,8 @@ onMounted(async () => {
     autostart.value = a
     silentStart.value = s
     videoActiveEnabled.value = va
+    waterEnabled.value = ws.enabled
+    waterInterval.value = Number(ws.interval_minutes) || 60
     appVersion.value = v
     reminderMode.value = rm || 'toast'
     customBody.value = rt.body || ''
@@ -276,9 +282,53 @@ async function toggleVideoActive(val: boolean) {
   }
 }
 
+async function toggleWaterEnabled(val: boolean) {
+  loading.value.water = true
+  try {
+    await setWaterSettings(val, waterInterval.value)
+    waterEnabled.value = val
+    message.success(t('settings.messages.saved'))
+  } catch (e) {
+    message.error(t('settings.messages.saveFailed'))
+    waterEnabled.value = !val
+  } finally {
+    loading.value.water = false
+  }
+}
+
+let waterSaveTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+  () => waterInterval.value,
+  async (newVal, oldVal) => {
+    if (!isConfigReady.value) return
+    if (newVal === oldVal) return
+    if (waterSaveTimer) clearTimeout(waterSaveTimer)
+    waterSaveTimer = setTimeout(async () => {
+      loading.value.water = true
+      try {
+        await setWaterSettings(waterEnabled.value, newVal)
+        message.success(t('settings.messages.saved'))
+      } catch (e) {
+        message.error(t('settings.messages.saveFailed'))
+      } finally {
+        loading.value.water = false
+      }
+    }, 500)
+  }
+)
+
 async function notify() {
   try {
     await testNotification()
+    message.success(t('settings.messages.notifySent'))
+  } catch (e) {
+    message.error(t('settings.messages.notifyFailed'))
+  }
+}
+
+async function notifyWater() {
+  try {
+    await testWaterNotification()
     message.success(t('settings.messages.notifySent'))
   } catch (e) {
     message.error(t('settings.messages.notifyFailed'))
@@ -407,6 +457,49 @@ async function handleInstallUpdate() {
               @update:value="toggleVideoActive"
             />
           </div>
+
+        </div>
+
+        <div class="group water-group">
+          <div class="group-label">{{ t('settings.groups.water') }}</div>
+
+          <div class="setting-row">
+            <div class="setting-meta">
+              <div class="setting-title">{{ t('settings.reminder.waterTitle') }}</div>
+              <div class="setting-desc">{{ t('settings.reminder.waterDesc') }}</div>
+            </div>
+            <n-switch
+              :value="waterEnabled"
+              :loading="loading.water"
+              @update:value="toggleWaterEnabled"
+            />
+          </div>
+
+          <template v-if="waterEnabled">
+            <div class="divider" />
+
+            <div class="setting-row">
+              <div class="setting-meta">
+                <div class="setting-title">{{ t('settings.reminder.waterIntervalTitle') }}</div>
+                <div class="setting-desc">{{ t('settings.reminder.waterIntervalDesc') }}</div>
+              </div>
+              <div class="setting-control slider-control">
+                <n-slider v-model:value="waterInterval" :min="5" :max="180" :step="5" :disabled="!waterEnabled" />
+                <span class="setting-value water-value">{{ waterInterval }} {{ t('common.minutes') }}</span>
+              </div>
+            </div>
+
+            <div class="divider" />
+
+            <div class="setting-row">
+              <div class="setting-meta">
+                <div class="setting-title">{{ t('settings.reminder.waterTest') }}</div>
+              </div>
+              <button class="water-test-btn" :disabled="!waterEnabled" @click="notifyWater">
+                {{ t('settings.reminder.waterTest') }}
+              </button>
+            </div>
+          </template>
         </div>
 
         <div class="group">
@@ -1025,6 +1118,52 @@ async function handleInstallUpdate() {
 .pos-reset {
   font-size: 11px;
   padding: 4px 10px;
+}
+
+.water-group {
+  background: linear-gradient(180deg, #ffffff 0%, #f5f9ff 100%);
+  border-color: #bfdbfe;
+}
+.water-group .group-label {
+  color: #2563eb;
+}
+.water-group .divider {
+  background: #dbeafe;
+}
+.water-value {
+  color: #2563eb;
+}
+.water-group :deep(.n-switch--active) {
+  --n-rail-color-active: #3b82f6 !important;
+}
+.water-group :deep(.n-switch.n-switch--active .n-switch__rail) {
+  background-color: #3b82f6 !important;
+}
+.water-group :deep(.n-slider-rail__fill) {
+  background-color: #3b82f6 !important;
+}
+.water-group :deep(.n-slider-handle) {
+  background-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+}
+.water-test-btn {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: none;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.water-test-btn:hover {
+  background: #2563eb;
+}
+.water-test-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* 响应式 */
