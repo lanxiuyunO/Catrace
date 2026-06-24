@@ -25,6 +25,7 @@ It doesn't take screenshots of your screen, nor does it read what you're doing. 
 
 Then it follows a simple set of rules:
 
+- It also detects when you're consuming screen content (watching videos, listening to music, or viewing live streams), so even periods with little keyboard/mouse activity can still count as active. On Windows, this is determined by system audio output matched against an exclusion list for the audio-output process; this feature is not yet available on macOS / Linux.
 - It starts counting from the first time you type or move the mouse today.
 - If you get up for water, reply to a message, or zone out — as long as you don't stop for a continuous stretch, it still considers you in the same work rhythm.
 - Only when you truly pause and stay still for several minutes does it mark that time as rest.
@@ -61,6 +62,6 @@ Catrace offers a clean Dashboard to help you review your work and rest rhythm fo
 - **Today's Stats**: total active time, total rest time, active ratio, and number of work blocks
 - **Today's Activity (Overview)**: Time-block cards based on your work rhythm, showing at a glance how work and rest alternated today; click a card to expand and see details in 10-minute slices
 - **Today's Activity (Detailed)**: A 24-hour minute-level heatmap, useful when you want to check a specific moment precisely
-- **Settings**: Adjust work window length and rest threshold, choose reminder mode (Notification Reminder / Popup / Fullscreen), customize reminder content and fullscreen background, enable auto-start on boot, and switch interface language (Simplified Chinese / English)
+- **Settings**: Adjust work window length and rest threshold, choose reminder mode (Notification Reminder / Popup / Fullscreen), customize reminder content and fullscreen background, enable media-active detection with exclusion whitelist (Windows), enable auto-start on boot, and switch interface language (Simplified Chinese / English)
 
 The interface uses a soft purple wellness theme with a sidebar navigation and main content area — clean and refreshing. Supports bilingual switching between Simplified Chinese and English, defaulting to your system language.

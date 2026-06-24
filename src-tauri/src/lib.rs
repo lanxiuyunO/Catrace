@@ -1,11 +1,12 @@
 mod db;
+mod media_audio;
 mod reminder;
 mod reminder_toast;
 mod report;
 mod water;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -25,329 +26,41 @@ use tokio::time::interval;
 // 窗口状态由 tauri-plugin-window-state 自动管理（启动恢复 / 退出保存）
 
 // ------------------------------------------------------------------
-// 视频/流媒体检测
+// 媒体计入活跃检测
 // ------------------------------------------------------------------
-
-#[cfg(windows)]
-static GSMTCSM_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
-#[cfg(windows)]
-static GSMTCSM_LAST_FAIL_TS: AtomicI64 = AtomicI64::new(0);
-#[cfg(windows)]
-const GSMTCSM_MAX_FAILS: u32 = 3;
-#[cfg(windows)]
-const GSMTCSM_COOLDOWN_SECS: i64 = 600;
-
-#[cfg(windows)]
-fn record_gsmtcsm_failure() {
-    GSMTCSM_FAIL_COUNT.fetch_add(1, Ordering::Relaxed);
-    GSMTCSM_LAST_FAIL_TS.store(chrono::Local::now().timestamp(), Ordering::Relaxed);
-}
-
-/// 回退方案：通过窗口标题 + 进程名关键词匹配判断是否正在播放视频。
-/// 返回 (是否匹配, 匹配到的关键词, 窗口标题, 应用名, 进程路径)
-fn check_media_active_by_keywords() -> (bool, Option<String>, String, String, String) {
-    match get_active_window() {
-        Ok(win) => {
-            let title_lower = win.title.to_lowercase();
-            let app_name_lower = win.app_name.to_lowercase();
-            let path_lower = win.process_path.to_string_lossy().to_lowercase();
-
-            let video_site_keywords = [
-                "youtube",
-                "bilibili",
-                "netflix",
-                "twitch",
-                "爱奇艺",
-                "腾讯视频",
-                "优酷",
-                "芒果tv",
-                "disney+",
-                "hbo max",
-                "prime video",
-                "hulu",
-                "crunchyroll",
-                "niconico",
-                "dailymotion",
-                "vimeo",
-                "live",
-                "直播",
-            ];
-            let video_player_keywords = [
-                "vlc",
-                "mpv",
-                "potplayer",
-                "mpc-hc",
-                "mpc-be",
-                "kmplayer",
-                "gom",
-                "mx player",
-                "infuse",
-                "iina",
-                "quicktime",
-                "movies & tv",
-                "电影和电视",
-                "windows media player",
-                "媒体播放器",
-            ];
-
-            let matched_site = video_site_keywords
-                .iter()
-                .find(|&&k| title_lower.contains(k))
-                .copied();
-            let matched_player = video_player_keywords
-                .iter()
-                .find(|&&k| app_name_lower.contains(k) || path_lower.contains(k))
-                .copied();
-
-            let matched = matched_site.or(matched_player).map(|s| s.to_string());
-            let is_match = matched.is_some();
-            (
-                is_match,
-                matched,
-                win.title,
-                win.app_name,
-                win.process_path.to_string_lossy().to_string(),
-            )
-        }
-        Err(_) => (
-            false,
-            None,
-            "Unknown".to_string(),
-            "Unknown".to_string(),
-            "Unknown".to_string(),
-        ),
-    }
-}
-
-fn is_media_active_by_keywords() -> bool {
-    check_media_active_by_keywords().0
-}
 
 // ---------- 调试结构体 ----------
 
 #[derive(serde::Serialize)]
-struct MediaSessionInfo {
-    title: String,
-    artist: String,
-    status: String,
-    playback_type: String,
-}
-
-#[derive(serde::Serialize)]
-struct VideoDebugInfo {
-    gsmtcsm_available: bool,
-    gsmtcsm_session_count: u32,
-    gsmtcsm_sessions: Vec<MediaSessionInfo>,
-    gsmtcsm_has_playing: bool,
-    gsmtcsm_error: Option<String>,
+struct MediaDebugInfo {
+    audio_sessions: Vec<media_audio::AudioSessionInfo>,
+    audio_active: bool,
+    audio_error: Option<String>,
 
     focus_window_title: String,
     focus_app_name: String,
     focus_process_path: String,
 
-    keyword_matched: bool,
-    matched_keyword: Option<String>,
-
     media_active: bool,
     mouse_keyboard_count: u32,
 }
 
-// ---------- Windows 视频检测 ----------
+// ---------- Windows 媒体检测 ----------
 
-/// Windows：优先使用系统媒体会话（GSMTCSM）判定。
-/// - GSMTCSM API 可用时，完全信任其结果（有 Playing 即活跃，无则不活跃），不再回退关键词匹配。
-/// - GSMTCSM 调用失败时才回退到窗口标题+进程名关键词匹配。
+/// Windows：枚举有音频输出的进程，若任一进程不在白名单内，则视为媒体活跃。
+/// - 无音频输出 → 不活跃（接受静音看视频被误判为不活跃）。
+/// - 有音频输出 → 检查每个音频输出进程自身是否在白名单；
+///   任一非白名单进程 → 活跃，全部白名单 → 不活跃。
+/// - 音频检测失败 → 不活跃。
 #[cfg(windows)]
-fn is_media_active() -> bool {
-    match try_media_session_active() {
-        Some(active) => active,
-        None => is_media_active_by_keywords(),
-    }
+fn is_media_active(whitelist: &[String]) -> bool {
+    media_audio::is_media_audio_active(whitelist)
 }
 
-/// 尝试通过 GSMTCSM 获取媒体播放状态。
-/// 返回 `Some(true)` 表示有会话在 Playing；
-/// 返回 `Some(false)` 表示 API 可用但无 Playing 会话；
-/// 返回 `None` 表示 API 调用失败、超时或处于冷却期（此时应回退关键词匹配）。
-/// 使用独立线程+1秒超时，避免 GSMTCSM 服务未响应时卡死主逻辑。
-/// 连续失败 3 次后进入 10 分钟冷却期，不再尝试调用，防止线程泄漏累积。
-#[cfg(windows)]
-fn try_media_session_active() -> Option<bool> {
-    use std::sync::mpsc::channel;
-    use std::time::Duration;
-    use windows::Media::Control::{
-        GlobalSystemMediaTransportControlsSessionManager,
-        GlobalSystemMediaTransportControlsSessionPlaybackStatus,
-    };
-
-    // 检查是否处于冷却期
-    let fail_count = GSMTCSM_FAIL_COUNT.load(Ordering::Relaxed);
-    if fail_count >= GSMTCSM_MAX_FAILS {
-        let last_fail = GSMTCSM_LAST_FAIL_TS.load(Ordering::Relaxed);
-        let now = chrono::Local::now().timestamp();
-        if now - last_fail < GSMTCSM_COOLDOWN_SECS {
-            return None;
-        }
-        // 冷却期结束，允许再试一次
-        GSMTCSM_FAIL_COUNT.store(0, Ordering::Relaxed);
-    }
-
-    let (tx, rx) = channel();
-    std::thread::Builder::new()
-        .name("gsmtcsm-check".into())
-        .spawn(move || {
-            let result: Result<bool, windows::core::Error> = (|| {
-                let async_op = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?;
-                let manager = async_op.get()?;
-                let sessions = manager.GetSessions()?;
-                let count = sessions.Size()?;
-
-                for i in 0..count {
-                    let Ok(session) = sessions.GetAt(i) else {
-                        continue;
-                    };
-                    let Ok(playback_info) = session.GetPlaybackInfo() else {
-                        continue;
-                    };
-                    let Ok(status) = playback_info.PlaybackStatus() else {
-                        continue;
-                    };
-
-                    if status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            })();
-            let _ = tx.send(result);
-        })
-        .ok()?;
-
-    match rx.recv_timeout(Duration::from_secs(1)) {
-        Ok(Ok(has_playing)) => {
-            GSMTCSM_FAIL_COUNT.store(0, Ordering::Relaxed);
-            Some(has_playing)
-        }
-        Ok(Err(_)) => {
-            record_gsmtcsm_failure();
-            None
-        }
-        Err(_) => {
-            record_gsmtcsm_failure();
-            None
-        }
-    }
-}
-
-/** Windows：获取系统媒体会话的详细调试信息。
- * 返回 (是否有 Playing 会话, 会话详情列表)。
- * 用于 Debug 页面展示，不用于正式活跃判定。
- * 通过独立线程+超时机制执行，避免某些媒体应用未响应时导致主线程卡死。 */
-#[cfg(windows)]
-fn get_media_sessions_debug() -> Result<(bool, Vec<MediaSessionInfo>), String> {
-    use std::sync::mpsc::channel;
-    use std::time::Duration;
-
-    let (tx, rx) = channel();
-    std::thread::Builder::new()
-        .name("gsmtcsm-debug".into())
-        .spawn(move || {
-            let result = get_media_sessions_debug_inner();
-            let _ = tx.send(result);
-        })
-        .map_err(|_| "无法创建 GSMTCSM 调试线程".to_string())?;
-
-    match rx.recv_timeout(Duration::from_secs(2)) {
-        Ok(result) => result,
-        Err(_) => Err("媒体会话查询超时（目标应用可能未响应）".into()),
-    }
-}
-
-#[cfg(windows)]
-fn get_media_sessions_debug_inner() -> Result<(bool, Vec<MediaSessionInfo>), String> {
-    use windows::Media::Control::{
-        GlobalSystemMediaTransportControlsSessionManager,
-        GlobalSystemMediaTransportControlsSessionPlaybackStatus,
-    };
-    use windows::Media::MediaPlaybackType;
-
-    let async_op = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-        .map_err(|e| format!("RequestAsync failed: {}", e))?;
-    let manager = async_op
-        .get()
-        .map_err(|e| format!("get manager failed: {}", e))?;
-    let sessions = manager
-        .GetSessions()
-        .map_err(|e| format!("GetSessions failed: {}", e))?;
-    let count = sessions.Size().map_err(|e| format!("Size failed: {}", e))?;
-
-    let mut has_playing = false;
-    let mut infos = Vec::new();
-
-    for i in 0..count {
-        let session = sessions
-            .GetAt(i)
-            .map_err(|e| format!("GetAt({}) failed: {}", i, e))?;
-        let playback_info = session
-            .GetPlaybackInfo()
-            .map_err(|e| format!("GetPlaybackInfo failed: {}", e))?;
-        let status = playback_info
-            .PlaybackStatus()
-            .map_err(|e| format!("PlaybackStatus failed: {}", e))?;
-
-        let status_str = match status {
-            GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing => "Playing",
-            GlobalSystemMediaTransportControlsSessionPlaybackStatus::Paused => "Paused",
-            GlobalSystemMediaTransportControlsSessionPlaybackStatus::Stopped => "Stopped",
-            _ => "Other",
-        }
-        .to_string();
-
-        if status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
-            has_playing = true;
-        }
-
-        let mut title = "Unknown".to_string();
-        let mut artist = "Unknown".to_string();
-        let mut playback_type = "Unknown".to_string();
-
-        // 只对 Playing 状态的会话获取详细属性。
-        // 已关闭/残留的会话（状态为 Paused/Stopped）调用 TryGetMediaPropertiesAsync 可能无限挂起，
-        // 因为目标应用已退出，WinRT 跨进程调用会阻塞。
-        if status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
-            if let Ok(props_async) = session.TryGetMediaPropertiesAsync() {
-                if let Ok(props) = props_async.get() {
-                    title = props.Title().unwrap_or_default().to_string();
-                    artist = props.Artist().unwrap_or_default().to_string();
-                    if let Ok(type_ref) = props.PlaybackType() {
-                        if let Ok(pt) = type_ref.Value() {
-                            playback_type = match pt {
-                                MediaPlaybackType::Video => "Video",
-                                MediaPlaybackType::Music => "Music",
-                                _ => "Other",
-                            }
-                            .to_string();
-                        }
-                    }
-                }
-            }
-        }
-
-        infos.push(MediaSessionInfo {
-            title,
-            artist,
-            status: status_str,
-            playback_type,
-        });
-    }
-
-    Ok((has_playing, infos))
-}
-
-/// 非 Windows：直接走关键词匹配
+/// 非 Windows：目前尚未实现系统级音频检测，媒体计入活跃暂不可用。
 #[cfg(not(windows))]
-fn is_media_active() -> bool {
-    is_media_active_by_keywords()
+fn is_media_active(_whitelist: &[String]) -> bool {
+    false
 }
 
 #[derive(Default)]
@@ -414,96 +127,102 @@ fn tray_quit(locale: &str) -> &'static str {
     }
 }
 
-#[cfg(not(windows))]
-fn gsmtcsm_unavailable_msg(locale: &str) -> &'static str {
-    match locale {
-        "zh-CN" => "GSMTCSM 仅在 Windows 可用",
-        _ => "GSMTCSM is only available on Windows",
-    }
-}
-
-/** 获取视频检测的实时调试信息，供 Debug 页面展示。
- * GSMTCSM 查询内部已有独立线程+超时保护，check_media_active_by_keywords 为纯本地计算，
- * 均无需额外 spawn_blocking，避免嵌套线程。 */
+/** 获取媒体检测的实时调试信息，供 Debug 页面展示。
+ * 音频会话检测有内部超时保护，均无需额外 spawn_blocking。 */
 #[tauri::command]
-async fn get_video_debug_info(
+async fn get_media_debug_info(
     activity: tauri::State<'_, Arc<Mutex<ActivityState>>>,
     db: tauri::State<'_, db::Db>,
-) -> Result<VideoDebugInfo, String> {
+    whitelist: tauri::State<'_, Arc<Mutex<Vec<String>>>>,
+) -> Result<MediaDebugInfo, String> {
     let mouse_keyboard_count = {
         let s = activity.lock().unwrap();
         s.count
     };
     let _locale = db.get_setting("locale", "zh-CN");
 
-    // GSMTCSM 内部已用独立线程+2秒超时，直接调用即可（最多阻塞2秒）
-    #[cfg(windows)]
-    let gsmtcsm_result = get_media_sessions_debug();
-
-    #[cfg(windows)]
-    let (
-        gsmtcsm_available,
-        gsmtcsm_session_count,
-        gsmtcsm_sessions,
-        gsmtcsm_has_playing,
-        gsmtcsm_error,
-    ) = match gsmtcsm_result {
-        Ok((has_playing, sessions)) => (true, sessions.len() as u32, sessions, has_playing, None),
-        Err(e) => (false, 0, Vec::new(), false, Some(e)),
+    // 获取音频会话信息（Windows），避免长时间持有 state 锁
+    let whitelist_clone = whitelist.lock().unwrap().clone();
+    let (audio_sessions, audio_active, audio_error) = match media_audio::list_audio_sessions() {
+        Ok(mut sessions) => {
+            for session in &mut sessions {
+                session.whitelisted = media_audio::is_session_whitelisted(session, &whitelist_clone);
+            }
+            let active = media_audio::is_media_audio_active(&whitelist_clone);
+            (sessions, active, None)
+        }
+        Err(e) => (Vec::new(), false, Some(e)),
     };
 
-    #[cfg(not(windows))]
-    let (
-        gsmtcsm_available,
-        gsmtcsm_session_count,
-        gsmtcsm_sessions,
-        gsmtcsm_has_playing,
-        gsmtcsm_error,
-    ) = (
-        false,
-        0,
-        Vec::new(),
-        false,
-        Some(gsmtcsm_unavailable_msg(&_locale).to_string()),
-    );
-
-    // 纯本地计算，无需 spawn_blocking
-    let (keyword_matched, matched_keyword, focus_title, focus_app, focus_path) =
-        check_media_active_by_keywords();
-
-    let media_active = if cfg!(windows) && gsmtcsm_available {
-        gsmtcsm_has_playing
-    } else {
-        keyword_matched
+    // 获取当前焦点窗口信息（仅用于展示，不再参与媒体活跃判定）
+    let (focus_title, focus_app, focus_path) = match get_active_window() {
+        Ok(win) => {
+            let title = win.title;
+            let app_name = win.app_name;
+            let process_path = win.process_path.to_string_lossy().to_string();
+            (title, app_name, process_path)
+        }
+        Err(_) => (
+            "Unknown".to_string(),
+            "Unknown".to_string(),
+            "Unknown".to_string(),
+        ),
     };
 
-    Ok(VideoDebugInfo {
-        gsmtcsm_available,
-        gsmtcsm_session_count,
-        gsmtcsm_sessions,
-        gsmtcsm_has_playing,
-        gsmtcsm_error,
+    let media_active = is_media_active(&whitelist_clone);
+
+    Ok(MediaDebugInfo {
+        audio_sessions,
+        audio_active,
+        audio_error,
         focus_window_title: focus_title,
         focus_app_name: focus_app,
         focus_process_path: focus_path,
-        keyword_matched,
-        matched_keyword,
         media_active,
         mouse_keyboard_count,
     })
 }
 
-/** 获取「视频计入活跃」开关状态（默认 true）。 */
+/** 获取当前运行平台。 */
 #[tauri::command]
-fn get_video_active_enabled(db: tauri::State<db::Db>) -> bool {
+fn get_platform() -> &'static str {
+    std::env::consts::OS
+}
+
+/** 获取「媒体计入活跃」开关状态（默认 true）。
+ * 底层 key 仍为 video_active_enabled，以兼容老用户设置。 */
+#[tauri::command]
+fn get_media_active_enabled(db: tauri::State<db::Db>) -> bool {
     db.get_setting("video_active_enabled", "true") == "true"
 }
 
-/** 设置「视频计入活跃」开关状态。 */
+/** 设置「媒体计入活跃」开关状态。 */
 #[tauri::command]
-fn set_video_active_enabled(enabled: bool, db: tauri::State<db::Db>) -> Result<(), String> {
+fn set_media_active_enabled(enabled: bool, db: tauri::State<db::Db>) -> Result<(), String> {
     db.set_setting("video_active_enabled", &enabled.to_string())
         .map_err(|e| e.to_string())
+}
+
+/** 获取媒体排除白名单文本（一行一个进程名，首次读取时自动初始化默认值）。 */
+#[tauri::command]
+fn get_media_whitelist_text(db: tauri::State<db::Db>) -> String {
+    media_audio::whitelist_to_text(&media_audio::load_whitelist(&db))
+}
+
+/** 设置媒体排除白名单文本；空文本视为恢复默认白名单。 */
+#[tauri::command]
+fn set_media_whitelist_text(
+    text: String,
+    db: tauri::State<db::Db>,
+    state: tauri::State<'_, Arc<Mutex<Vec<String>>>>,
+) -> Result<(), String> {
+    let mut list = media_audio::parse_whitelist_text(&text);
+    if list.is_empty() {
+        list = media_audio::default_whitelist();
+    }
+    media_audio::save_whitelist(&db, &list)?;
+    *state.lock().unwrap() = list;
+    Ok(())
 }
 
 /** 获取 Toast 调试模式开关状态（默认 false）。 */
@@ -1221,6 +940,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 单例模式：当用户尝试启动第二个实例时，聚焦到已有实例的主窗口
             if let Some(window) = app.get_webview_window("main") {
@@ -1237,6 +957,10 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir)?;
             let db_path = app_data_dir.join("catrace.db");
             let db = db::Db::new(&db_path).expect("Failed to initialize database");
+
+            // 加载媒体排除白名单（Windows 音频检测使用）
+            let media_whitelist = Arc::new(Mutex::new(media_audio::load_whitelist(&db)));
+            app.manage(media_whitelist.clone());
 
             // 首次启动：将 bundled catrace.png 复制为默认全屏背景
             {
@@ -1284,6 +1008,7 @@ pub fn run() {
             let water_state_for_settle = water_state_clone.clone();
             let store_for_settle = store.clone();
             let fullscreen_active_for_settle = fullscreen_active.clone();
+            let media_whitelist_for_settle = media_whitelist.clone();
             tauri::async_runtime::spawn(async move {
                 // 计算距离下一个整分钟还有多少秒
                 let now = chrono::Local::now();
@@ -1295,10 +1020,11 @@ pub fn run() {
                     minute.tick().await;
                     // 在获取 settle_state 锁之前，先完成所有可能阻塞的系统调用。
                     // 如果 is_media_active() 或 get_active_window() 卡住，不会阻塞键鼠计数线程。
-                    let video_enabled =
+                    let media_enabled =
                         db_clone.get_setting("video_active_enabled", "true") == "true";
-                    let media_active = if video_enabled {
-                        is_media_active()
+                    let media_active = if media_enabled {
+                        let whitelist = media_whitelist_for_settle.lock().unwrap().clone();
+                        is_media_active(&whitelist)
                     } else {
                         false
                     };
@@ -1459,8 +1185,11 @@ pub fn run() {
             set_hide_stats,
             get_locale,
             set_locale,
-            get_video_active_enabled,
-            set_video_active_enabled,
+            get_platform,
+            get_media_active_enabled,
+            set_media_active_enabled,
+            get_media_whitelist_text,
+            set_media_whitelist_text,
             get_toast_debug_mode,
             set_toast_debug_mode,
             show_main_window,
@@ -1470,7 +1199,7 @@ pub fn run() {
             get_app_stats,
             test_notification,
             water::test_water_notification,
-            get_video_debug_info,
+            get_media_debug_info,
             get_reminder_mode,
             set_reminder_mode,
             get_reminder_text,

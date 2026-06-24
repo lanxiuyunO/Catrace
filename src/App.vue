@@ -113,6 +113,18 @@ html, body, #app {
   background: #f7f5fa;
 }
 
+* {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
 html.reminder-transparent,
 html.reminder-transparent body,
 html.reminder-transparent #app {
@@ -145,8 +157,8 @@ html.reminder-transparent #app {
 }
 
 .logo {
-  padding: 24px 16px 20px;
-  font-size: 18px;
+  padding: 1.5rem 1rem 1.25rem;
+  font-size: 1.125rem;
   font-weight: 700;
   text-align: center;
   color: #6d28d9;
@@ -154,14 +166,14 @@ html.reminder-transparent #app {
 }
 
 .app-sider :deep(.n-menu-item-content) {
-  border-radius: 10px;
-  margin: 2px 8px;
+  border-radius: 0.625rem;
+  margin: 0.125rem 0.5rem;
 }
 
 .app-sider :deep(.n-menu-item-content::before) {
-  border-radius: 10px !important;
-  left: 8px !important;
-  right: 8px !important;
+  border-radius: 0.625rem !important;
+  left: 0.5rem !important;
+  right: 0.5rem !important;
 }
 
 .app-sider :deep(.n-menu .router-link-active) {
@@ -176,12 +188,12 @@ html.reminder-transparent #app {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
   cursor: pointer;
   color: #8b5cf6;
-  font-size: 13px;
-  border-top: 1px solid #ebe6f2;
+  font-size: 0.8125rem;
+  border-top: 0.0625rem solid #ebe6f2;
   background: #fff;
   transition: background 0.2s;
   z-index: 10;
@@ -200,8 +212,8 @@ html.reminder-transparent #app {
 }
 
 .qq-qr-img {
-  width: 200px;
+  width: 12.5rem;
   height: auto;
-  border-radius: 6px;
+  border-radius: 0.375rem;
 }
 </style>

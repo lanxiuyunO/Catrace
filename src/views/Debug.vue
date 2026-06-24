@@ -14,11 +14,11 @@ import {
   NAlert,
   NSwitch,
 } from 'naive-ui'
-import { getVideoDebugInfo, type VideoDebugInfo, getToastDebugMode, setToastDebugMode } from '../api/tauri'
+import { getMediaDebugInfo, type MediaDebugInfo, getToastDebugMode, setToastDebugMode } from '../api/tauri'
 
 const { t } = useI18n()
 
-const data = ref<VideoDebugInfo | null>(null)
+const data = ref<MediaDebugInfo | null>(null)
 const loading = ref(false)
 const errorMsg = ref<string | null>(null)
 const toastDebugMode = ref(false)
@@ -46,7 +46,7 @@ async function refresh(manual = false) {
   if (manual) loading.value = true
   errorMsg.value = null
   try {
-    data.value = await getVideoDebugInfo()
+    data.value = await getMediaDebugInfo()
   } catch (e: any) {
     errorMsg.value = e?.message || String(e)
     console.error(e)
@@ -100,7 +100,7 @@ onDeactivated(() => {
           <div class="result-item">
             <div class="result-label">{{ t('debug.mediaActive') }}</div>
             <n-tag :type="data.media_active ? 'success' : 'default'" size="large">
-              {{ data.media_active ? t('debug.videoActiveTrue') : 'false' }}
+              {{ data.media_active ? t('debug.mediaActiveTrue') : 'false' }}
             </n-tag>
           </div>
           <div class="result-item">
@@ -116,51 +116,51 @@ onDeactivated(() => {
         </n-space>
       </n-card>
 
-      <!-- GSMTCSM -->
-      <n-card :title="t('debug.gsmtcsm')" size="small">
+      <!-- 音频会话 -->
+      <n-card :title="t('debug.audioSessions')" size="small">
         <n-space vertical :size="12">
           <n-descriptions :column="3" size="small" bordered>
             <n-descriptions-item :label="t('debug.available')">
-              <n-tag :type="data.gsmtcsm_available ? 'success' : 'error'">
-                {{ data.gsmtcsm_available ? t('debug.yes') : t('debug.no') }}
+              <n-tag :type="data.audio_error ? 'error' : 'success'">
+                {{ data.audio_error ? t('debug.no') : t('debug.yes') }}
               </n-tag>
             </n-descriptions-item>
-            <n-descriptions-item :label="t('debug.sessionCount')">{{ data.gsmtcsm_session_count }}</n-descriptions-item>
-            <n-descriptions-item :label="t('debug.hasPlaying')">
-              <n-tag :type="data.gsmtcsm_has_playing ? 'success' : 'default'">
-                {{ data.gsmtcsm_has_playing ? t('debug.yes') : t('debug.no') }}
+            <n-descriptions-item :label="t('debug.sessionCount')">{{ data.audio_sessions.length }}</n-descriptions-item>
+            <n-descriptions-item :label="t('debug.audioActive')">
+              <n-tag :type="data.audio_active ? 'success' : 'default'">
+                {{ data.audio_active ? t('debug.yes') : t('debug.no') }}
               </n-tag>
             </n-descriptions-item>
           </n-descriptions>
 
-          <n-text v-if="data.gsmtcsm_error" type="error">
-            {{ t('debug.errorPrefix') }}{{ data.gsmtcsm_error }}
+          <n-text v-if="data.audio_error" type="error">
+            {{ t('debug.errorPrefix') }}{{ data.audio_error }}
           </n-text>
 
-          <n-table v-if="data.gsmtcsm_sessions.length > 0" :single-line="false" size="small">
+          <n-table v-if="data.audio_sessions.length > 0" :single-line="false" size="small">
             <thead>
               <tr>
-                <th>{{ t('debug.table.title') }}</th>
-                <th>{{ t('debug.table.artist') }}</th>
-                <th>{{ t('debug.table.status') }}</th>
-                <th>{{ t('debug.table.type') }}</th>
+                <th>{{ t('debug.processName') }}</th>
+                <th>PID</th>
+                <th>{{ t('debug.peak') }}</th>
+                <th>{{ t('debug.whitelisted') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(s, i) in data.gsmtcsm_sessions" :key="i">
-                <td>{{ s.title }}</td>
-                <td>{{ s.artist }}</td>
+              <tr v-for="(s, i) in data.audio_sessions" :key="i">
+                <td>{{ s.process_name }}</td>
+                <td>{{ s.pid }}</td>
+                <td>{{ s.peak.toFixed(4) }}</td>
                 <td>
-                  <n-tag :type="s.status === 'Playing' ? 'success' : 'default'" size="small">
-                    {{ s.status }}
+                  <n-tag :type="s.whitelisted ? 'success' : 'default'" size="small">
+                    {{ s.whitelisted ? t('debug.yes') : t('debug.no') }}
                   </n-tag>
                 </td>
-                <td>{{ s.playback_type }}</td>
               </tr>
             </tbody>
           </n-table>
 
-          <n-empty v-else-if="!data.gsmtcsm_error" :description="t('debug.noMediaSessions')" size="small" />
+          <n-empty v-else-if="!data.audio_error" :description="t('debug.noAudioSessions')" size="small" />
         </n-space>
       </n-card>
 
@@ -171,14 +171,6 @@ onDeactivated(() => {
             <n-descriptions-item :label="t('debug.windowTitle')">{{ data.focus_window_title }}</n-descriptions-item>
             <n-descriptions-item :label="t('debug.appName')">{{ data.focus_app_name }}</n-descriptions-item>
             <n-descriptions-item :label="t('debug.processPath')">{{ data.focus_process_path }}</n-descriptions-item>
-            <n-descriptions-item :label="t('debug.keywordMatch')">
-              <n-tag :type="data.keyword_matched ? 'success' : 'default'">
-                {{ data.keyword_matched ? t('debug.yes') : t('debug.no') }}
-              </n-tag>
-              <n-text v-if="data.matched_keyword" depth="3" style="margin-left: 8px;">
-                {{ t('debug.matchedPrefix') }}{{ data.matched_keyword }}
-              </n-text>
-            </n-descriptions-item>
           </n-descriptions>
         </n-space>
       </n-card>
@@ -189,20 +181,20 @@ onDeactivated(() => {
 
 <style scoped>
 .debug-page {
-  padding: 24px;
-  max-width: 900px;
+  padding: 1.5rem;
+  max-width: 56.25rem;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 1.25rem;
 }
 
 .page-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 1.25rem;
   color: #2e1065;
 }
 
@@ -211,13 +203,13 @@ onDeactivated(() => {
 }
 
 .result-label {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #8b7aab;
-  margin-bottom: 6px;
+  margin-bottom: 0.375rem;
 }
 
 .debug-switch-label {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: #6b5b8a;
 }
 </style>
