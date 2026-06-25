@@ -25,7 +25,14 @@ interface FullscreenSettings {
 
 const { value: reminderMode, loading: reminderModeLoading } = useAutoSavedSetting<string>({
   initialValue: 'toast',
-  load: getReminderMode,
+  load: async () => {
+    const mode = await getReminderMode()
+    if (mode === 'popup') {
+      await setReminderMode('toast')
+      return 'toast'
+    }
+    return mode
+  },
   save: setReminderMode,
   debounce: 0,
   onSuccess: () => message.success(t('settings.messages.saved')),
@@ -62,7 +69,7 @@ const { value: fullscreen } = useAutoSavedSetting<FullscreenSettings>({
 
 const reminderModeOptions = [
   { label: t('settings.reminder.modeToast'), value: 'toast' },
-  { label: t('settings.reminder.modePopup'), value: 'popup' },
+  // { label: t('settings.reminder.modePopup'), value: 'popup' },
   { label: t('settings.reminder.modeFullscreen'), value: 'fullscreen' },
 ]
 

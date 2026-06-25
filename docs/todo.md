@@ -94,3 +94,21 @@ Windows 上当前策略改为：
 ### 当前状态
 
 已落地。Windows 下文件重命名、输入框编辑时弹出 Toast/Popup 不会打断当前焦点。
+
+---
+
+## 待决策：是否彻底移除 popup 提醒
+
+### 当前状态
+
+前端设置页已隐藏「弹窗提醒」选项（`src/components/settings/NotificationSettingsCard.vue` 中注释掉 `{ label: t('settings.reminder.modePopup'), value: 'popup' }`）。
+
+### 待后续评估
+
+- 观察用户反馈：如果只保留 toast / fullscreen 两种模式已足够，后续可彻底删除 popup 相关代码。
+- 若决定删除，需清理的内容包括：
+  - 前端：`src/views/ReminderPopup.vue`、`src/router/index.ts` 中 `/reminder-popup` 路由。
+  - Rust：`src-tauri/src/window_manager/` 中 popup 相关的无焦点显示逻辑（或保留给 toast 使用，视 toast 是否继续依赖该模块而定）、`src-tauri/src/lib.rs` 中 `reminder_mode == "popup"` 的分支。
+  - i18n：`zh-CN.ts` / `en-US.ts` 中 popup 相关翻译键。
+  - 路由和菜单中所有对 `/reminder-popup` 的引用。
+- 当前先保留代码，仅隐藏入口，避免后续反悔时需要回滚。
