@@ -111,6 +111,7 @@ jobs:
     needs:
       - get-version
       - publish-tauri
+    if: ${{ !cancelled() && needs.get-version.result == 'success' }}
     permissions:
       contents: write
     runs-on: ubuntu-latest

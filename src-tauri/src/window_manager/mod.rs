@@ -2,17 +2,17 @@ use tauri::{command, generate_handler, plugin::Builder, plugin::TauriPlugin, App
 
 mod shared;
 
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 mod windows;
+#[cfg(not(target_os = "windows"))]
+mod macos;
 
 pub use shared::{FULLSCREEN_WINDOW_LABEL, POPUP_WINDOW_LABEL, TOAST_WINDOW_LABEL};
 
-#[cfg(target_os = "macos")]
-use macos as platform;
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 use windows as platform;
+#[cfg(not(target_os = "windows"))]
+use macos as platform;
 
 #[command]
 async fn show_window<R: Runtime>(
