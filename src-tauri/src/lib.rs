@@ -1220,6 +1220,8 @@ pub fn run() {
                     if let Err(e) = db_clone.insert_record(timestamp, active, &process_name) {
                         eprintln!("Failed to write to database: {}", e);
                     }
+                    s.count = 0;
+                    drop(s);
 
                     // 读取配置
                     let window: i64 = db_clone
@@ -1320,8 +1322,6 @@ pub fn run() {
                         &locale,
                         &store_for_settle,
                     );
-
-                    s.count = 0;
                 }
             });
 
