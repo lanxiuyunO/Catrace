@@ -141,6 +141,8 @@ pub fn create_toast_window(
             "body": data.body,
         });
         let app = app_handle.clone();
+        // position_toast_window / eval / show_reminder_no_activate 都涉及 WebviewWindow 操作，
+        // 在 Windows 上部分 API 要求主线程；通过 async_runtime 确保它们跑在主线程。
         tauri::async_runtime::spawn(async move {
             let _ = position_toast_window(&window, &app);
             let js = format!(
@@ -216,6 +218,7 @@ pub fn create_update_toast_window(
     if let Some(window) = app_handle.get_webview_window(TOAST_WINDOW_LABEL) {
         let app = app_handle.clone();
         let js_payload = js.clone();
+        // WebviewWindow 操作需要跑在主线程，避免调用方不在主线程时崩溃。
         tauri::async_runtime::spawn(async move {
             let _ = position_toast_window(&window, &app);
             let _ = window.eval(&js_payload);

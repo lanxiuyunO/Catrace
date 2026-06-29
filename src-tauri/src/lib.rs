@@ -80,7 +80,7 @@ pub struct ActivityState {
 }
 
 /// 轻量活跃快照，供休息计时卡片每 2 秒轮询使用。
-/// 只读键鼠累计计数与媒体活跃，避免 get_media_debug_info 的会话枚举开销。
+/// 只读键鼠累计计数与媒体/全屏状态，避免 get_media_debug_info 的会话枚举开销。
 #[derive(serde::Serialize)]
 struct ActivitySnapshot {
     count: u32,
