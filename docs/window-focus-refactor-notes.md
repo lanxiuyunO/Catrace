@@ -18,7 +18,7 @@ Windows 上实现不夺焦弹窗的核心思路是阻止窗口被激活，同时
 
 - **扩展样式 `WS_EX_NOACTIVATE`**：窗口不会成为前台窗口，点击它也不会夺走当前焦点。
 - **显示命令 `SW_SHOWNOACTIVATE`**：以不激活的方式显示窗口。
-- **`SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE | ...)`**：将窗口置顶，但不让它获得焦点。
+- **`SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE | ...)`**：将窗口置顶，但不让它获得焦点。**注意不能同时带 `SWP_NOZORDER`**，否则 `HWND_TOPMOST` 会被忽略。
 
 一些实现还会叠加低层输入钩子：
 
@@ -60,12 +60,12 @@ SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
 // 无焦点显示
 ShowWindow(hwnd, SW_SHOWNOACTIVATE);
 
-// 置顶但不激活
+// 置顶但不激活（不可带 SWP_NOZORDER，否则 HWND_TOPMOST 无效）
 SetWindowPos(
     hwnd,
     Some(HWND_TOPMOST),
     0, 0, 0, 0,
-    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
+    SWP_NOMOVE | SWP_NOSIZE
         | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED,
 );
 ```
@@ -134,6 +134,10 @@ invoke('plugin:catrace-window|set_window_active_mode', { label, active })
 ### 5.3 `SetWindowPos` 的 `HWND_TOPMOST`
 
 在 windows crate 0.61 中，`SetWindowPos` 的 `hwndinsertafter` 参数类型是 `Option<HWND>`，`HWND_TOPMOST` 需要包装为 `Some(HWND_TOPMOST)`。
+
+**`SWP_NOZORDER` 与置顶互斥**：若同时传入 `HWND_TOPMOST` 和 `SWP_NOZORDER`，Win32 会忽略层级参数，窗口不会真正置顶。仅当「只想改样式、不想动 Z 顺序」时才用 `SWP_NOZORDER`（例如 `restore_normal_style` 里去掉 `WS_EX_NOACTIVATE`）。
+
+**为何初测时看似正常**：当时验证重点是「不夺焦」（资源管理器 F2 重命名），置顶是附带期望。窗口创建时已设 `.always_on_top(true)`，首次显示时 topmost 仍有效；`SetWindowPos` 那段错误代码等于没补上置顶。后来 Toast 每次弹出前会调用 `position_toast_window`（`set_size` / `set_position`），Tauri 内部会改 Z 顺序，而错误的 `SetWindowPos` 又无法重新置顶，问题才暴露出来。
 
 ### 5.4 HINSTANCE 与 HMODULE
 
