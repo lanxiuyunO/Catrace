@@ -2,7 +2,7 @@ use crate::db::Db;
 use chrono::SecondsFormat;
 use std::sync::OnceLock;
 
-const APP_KEY: &str = "RBrITa0T5PKRzdYuwwxzow";
+const APP_KEY: &str = "61JFztFHDmB_pGMdySezXg";
 const ACCESS_KEY: &str = "9SzxzOb3pQgkOB-LU-QU1Q";
 const SECRET_KEY: &str = "auf6yeKP1JLKBSAx3cfAKAjZynKl3siahyHXDoQPyWU";
 const REPORT_URL: &str = "https://api.upgrade.toolsetlink.com/v1/app/report";

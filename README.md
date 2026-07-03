@@ -2,7 +2,7 @@
 
 [English](README_EN.md) | 中文
 
-🏠 官网主页：https://lanxiuyun.github.io/Catrace
+🏠 官网主页：https://lanxiuyunO.github.io/Catrace
 
 一个帮你平衡工作与休息的小工具。
 
@@ -10,7 +10,7 @@
 
 ![Catrace Dashboard](.readme/dashboard.png)
 
-## [下载最新版本](https://download.upgrade.toolsetlink.com/download?appKey=RBrITa0T5PKRzdYuwwxzow)
+## [下载最新版本](https://download.upgrade.toolsetlink.com/download?appKey=61JFztFHDmB_pGMdySezXg)
 
 ## 它是干嘛的
 

@@ -28,3 +28,6 @@ dist-ssr
 
 # Playwright MCP logs
 .playwright-mcp/
+
+# Tauri signing keys
+keys/
