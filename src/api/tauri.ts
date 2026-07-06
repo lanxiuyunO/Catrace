@@ -158,6 +158,22 @@ export async function getMediaDebugInfo(): Promise<MediaDebugInfo> {
   return invoke('get_media_debug_info')
 }
 
+/** 轻量活跃快照，供休息计时卡片每 2 秒轮询使用 */
+export interface ActivitySnapshot {
+  count: number
+  media_active: boolean
+  fullscreen_active: boolean
+}
+
+export async function getActivitySnapshot(): Promise<ActivitySnapshot> {
+  return invoke('get_activity_snapshot')
+}
+
+/** 前端手动关闭休息计时卡片后通知后端清理状态 */
+export async function dismissRestTimer(): Promise<void> {
+  return invoke('dismiss_rest_timer')
+}
+
 /** 获取当前运行平台 */
 export async function getPlatform(): Promise<string> {
   return invoke('get_platform')

@@ -73,6 +73,33 @@ pub struct ActivityState {
     pub count: u32,
     pub last_cursor: (i32, i32),
     pub key_debounce: Option<Instant>,
+    /// 最近一次分钟结算时的媒体活跃结果，供 get_activity_snapshot 复用
+    pub media_active_snapshot: bool,
+    /// 最近一次分钟结算时的全屏状态快照
+    pub fullscreen_snapshot: bool,
+}
+
+/// 轻量活跃快照，供休息计时卡片每 2 秒轮询使用。
+/// 只读键鼠累计计数与媒体/全屏状态，避免 get_media_debug_info 的会话枚举开销。
+#[derive(serde::Serialize)]
+struct ActivitySnapshot {
+    count: u32,
+    media_active: bool,
+    fullscreen_active: bool,
+}
+
+#[tauri::command]
+async fn get_activity_snapshot(
+    activity: tauri::State<'_, Arc<Mutex<ActivityState>>>,
+) -> Result<ActivitySnapshot, String> {
+    let s = activity.lock().unwrap();
+    Ok(ActivitySnapshot {
+        count: s.count,
+        // 复用最近一次分钟结算的媒体/全屏快照，避免每次轮询都枚举音频会话
+        media_active: s.media_active_snapshot,
+        // 全屏期间前端不应把键鼠活动视为恢复活跃
+        fullscreen_active: s.fullscreen_snapshot,
+    })
 }
 
 use reminder::ReminderState;
@@ -322,6 +349,7 @@ fn skip_reminder(
     let mut s = state.lock().unwrap();
     s.skip_until_boundary = Some(boundary);
     s.snooze_until = None;
+    s.break_timer_active = false;
     // 用户操作后恢复正常活动追踪
     fullscreen_active.store(false, Ordering::SeqCst);
 }
@@ -334,8 +362,18 @@ fn snooze_reminder(
 ) {
     let mut s = state.lock().unwrap();
     s.snooze_until = Some(Instant::now() + Duration::from_secs(minutes * 60));
+    s.break_timer_active = false;
     // 用户操作后恢复正常活动追踪
     fullscreen_active.store(false, Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn dismiss_rest_timer(
+    state: tauri::State<Arc<Mutex<ReminderState>>>,
+) -> Result<(), String> {
+    let mut s = state.lock().unwrap();
+    s.break_timer_active = false;
+    Ok(())
 }
 
 #[tauri::command]
@@ -672,6 +710,33 @@ fn test_notification(
     fullscreen_active: tauri::State<Arc<AtomicBool>>,
 ) {
     let locale = db.get_setting("locale", "zh-CN");
+
+    // 仅在 Toast 模式下追加一张绿色休息计时测试卡片
+    let reminder_mode = db.get_setting("reminder_mode", "toast");
+    if reminder_mode == "toast" {
+        let break_m: i64 = db.get_setting("break_minutes", "5").parse().unwrap_or(5);
+        let now_ts = chrono::Local::now().timestamp();
+        let rest_start_ts = (now_ts / 60) * 60;
+        // 使用与实际逻辑一致的 rest_streak，避免 rest_streak > break_m 时 is_complete 与进度球矛盾
+        let rest_streak: i64 = std::cmp::min(3, break_m);
+        let remaining_minutes = (break_m - rest_streak).max(0);
+        let is_complete = rest_streak >= break_m;
+        if let Some(window) = app_handle.get_webview_window(window_manager::TOAST_WINDOW_LABEL) {
+            let _ = app_handle.emit_to(
+                window_manager::TOAST_WINDOW_LABEL,
+                "catrace-rest-timer",
+                serde_json::json!({
+                    "break_minutes": break_m,
+                    "rest_start_ts": rest_start_ts,
+                    "rest_streak": rest_streak,
+                    "remaining_minutes": remaining_minutes,
+                    "is_complete": is_complete,
+                }),
+            );
+            let _ = window_manager::show_reminder_no_activate(&app_handle, &window);
+        }
+    }
+
     show_notification(
         &app_handle,
         0,
@@ -1161,13 +1226,21 @@ pub fn run() {
                     };
                     let timestamp = chrono::Local::now().timestamp() / 60 * 60;
 
-                    let mut s = settle_state.lock().unwrap();
-                    // 全屏提醒期间：鼠标键盘不计活跃，视为休息
-                    let active = if is_fullscreen {
-                        false
-                    } else {
-                        s.count >= 3 || media_active
+                    // 先短暂取出并清零键鼠计数，同时保存媒体/全屏快照，
+                    // 后续写 DB、提醒、Toast 都不再持有 ActivityState 锁。
+                    // 避免 Toast 定位读取同一个锁导致死锁。
+                    let count = {
+                        let mut s = settle_state.lock().unwrap();
+                        let count = s.count;
+                        s.count = 0;
+                        // 保存快照，供 get_activity_snapshot 复用，避免前端轮询重复枚举音频会话
+                        s.media_active_snapshot = media_active;
+                        s.fullscreen_snapshot = is_fullscreen;
+                        count
                     };
+
+                    // 全屏提醒期间：鼠标键盘不计活跃，视为休息
+                    let active = if is_fullscreen { false } else { count >= 3 || media_active };
                     if let Err(e) = db_clone.insert_record(timestamp, active, &process_name) {
                         eprintln!("Failed to write to database: {}", e);
                     }
@@ -1190,14 +1263,21 @@ pub fn run() {
                     //    · skip_until_boundary：用户点了「跳过本次」
                     //    · snooze_until：用户点了「5/10分钟后提醒」或自动间隔提醒
                     if active {
+                        // 休息被打断，结束休息计时（前端 poll 已自行隐藏卡片，此处只清状态）
+                        {
+                            let mut r = reminder_state_for_settle.lock().unwrap();
+                            r.break_timer_active = false;
+                        }
+
                         match db_clone.check_should_notify(window, break_m) {
                             Ok((should_notify, boundary)) => {
-                                let r = reminder_state_for_settle.lock().unwrap();
+                                let mut r = reminder_state_for_settle.lock().unwrap();
 
                                 if should_notify {
                                     if let Some(b) = boundary {
                                         if r.is_skipped(b) || r.is_snoozed() {
-                                            // 被用户操作过滤，不提醒
+                                            // 被用户操作过滤，不提醒，也不进入休息计时等待
+                                            r.break_timer_active = false;
                                         } else {
                                             drop(r);
                                             show_notification(
@@ -1220,6 +1300,7 @@ pub fn run() {
                                                 Instant::now()
                                                     + Duration::from_secs((interval_m * 60) as u64),
                                             );
+                                            rs.break_timer_active = true;
                                         }
                                     }
                                 }
@@ -1230,6 +1311,29 @@ pub fn run() {
                         // 当前分钟在休息 → 清除 snooze，不提醒
                         let mut r = reminder_state_for_settle.lock().unwrap();
                         r.snooze_until = None;
+
+                        // 如果正在等待有效休息，推送倒计时状态到 Toast 窗口
+                        if r.break_timer_active {
+                            drop(r);
+                            if let Ok((rest_streak, rest_start_ts)) = db_clone.get_current_rest_streak() {
+                                let remaining = (break_m - rest_streak as i64).max(0);
+                                let is_complete = rest_streak as i64 >= break_m;
+                                if let Some(window) = app_handle.get_webview_window(window_manager::TOAST_WINDOW_LABEL) {
+                                    let _ = app_handle.emit_to(
+                                        window_manager::TOAST_WINDOW_LABEL,
+                                        "catrace-rest-timer",
+                                        serde_json::json!({
+                                            "break_minutes": break_m,
+                                            "rest_start_ts": rest_start_ts,
+                                            "rest_streak": rest_streak,
+                                            "remaining_minutes": remaining,
+                                            "is_complete": is_complete,
+                                        }),
+                                    );
+                                    let _ = window_manager::show_reminder_no_activate(&app_handle, &window);
+                                }
+                            }
+                        }
                     }
 
                     // 喝水提醒逻辑（仅在当前分钟活跃时检查）
@@ -1241,8 +1345,6 @@ pub fn run() {
                         &locale,
                         &store_for_settle,
                     );
-
-                    s.count = 0;
                 }
             });
 
@@ -1324,6 +1426,8 @@ pub fn run() {
             stop_notification_test,
             water::test_water_notification,
             get_media_debug_info,
+            get_activity_snapshot,
+            dismiss_rest_timer,
             get_reminder_mode,
             set_reminder_mode,
             get_reminder_text,

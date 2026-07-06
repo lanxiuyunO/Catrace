@@ -29,12 +29,7 @@ fn apply_no_activate_style(hwnd: HWND) {
             0,
             0,
             0,
-            SWP_NOMOVE
-                | SWP_NOSIZE
-                | SWP_NOZORDER
-                | SWP_NOACTIVATE
-                | SWP_SHOWWINDOW
-                | SWP_FRAMECHANGED,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED,
         );
     }
 }
@@ -70,12 +65,7 @@ fn show_no_activate(window: &WebviewWindow<tauri::Wry>) {
                 0,
                 0,
                 0,
-                SWP_NOMOVE
-                    | SWP_NOSIZE
-                    | SWP_NOZORDER
-                    | SWP_NOACTIVATE
-                    | SWP_SHOWWINDOW
-                    | SWP_FRAMECHANGED,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED,
             );
         }
     }
