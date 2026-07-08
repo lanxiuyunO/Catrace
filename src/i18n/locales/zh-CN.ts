@@ -165,6 +165,12 @@ export default {
     windowTitle: '窗口标题',
     appName: '应用名',
     processPath: '进程路径',
+    logTab: '运行日志',
+    logEmpty: '暂无日志，等待后端推送…',
+    logClear: '清空',
+    logFilterError: '错误',
+    logFilterWarn: '警告',
+    logFilterInfo: '信息',
   },
   timeline: {
     active: '活跃',

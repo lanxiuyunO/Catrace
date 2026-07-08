@@ -165,6 +165,12 @@ export default {
     windowTitle: 'Window Title',
     appName: 'App Name',
     processPath: 'Process Path',
+    logTab: 'Runtime Log',
+    logEmpty: 'No logs yet, waiting for backend...',
+    logClear: 'Clear',
+    logFilterError: 'Error',
+    logFilterWarn: 'Warn',
+    logFilterInfo: 'Info',
   },
   timeline: {
     active: 'Active',
