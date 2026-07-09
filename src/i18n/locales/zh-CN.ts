@@ -100,6 +100,7 @@ export default {
       changelogDesc: '查看版本更新记录',
       issuesTitle: '问题反馈',
       issuesDesc: '报告 Bug 或建议新功能',
+      logsDesc: '打开日志目录，方便反馈问题',
     },
     language: {
       title: '语言',

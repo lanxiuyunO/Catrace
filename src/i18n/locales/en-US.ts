@@ -100,6 +100,7 @@ export default {
       changelogDesc: 'View version update history',
       issuesTitle: 'Issue Feedback',
       issuesDesc: 'Report bugs or suggest new features',
+      logsDesc: 'Open logs folder for bug reports',
     },
     language: {
       title: 'Language',
