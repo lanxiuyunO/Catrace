@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { currentMonitor } from '@tauri-apps/api/window'
 import { LogicalSize, LogicalPosition } from '@tauri-apps/api/dpi'
 import { listen } from '@tauri-apps/api/event'
 import { check } from '@tauri-apps/plugin-updater'
@@ -194,29 +195,35 @@ async function adjustWindowSize() {
 
   try {
     const win = getCurrentWebviewWindow()
-    const pos = await win.innerPosition()
-    const size = await win.innerSize()
-    const sf = await win.scaleFactor()
+    const monitor = await currentMonitor()
+    const sf = monitor?.scaleFactor ?? 1
+    const workArea = monitor?.workArea
+
+    const workAreaX = workArea ? workArea.position.x / sf : 0
+    const workAreaY = workArea ? workArea.position.y / sf : 0
+    const workAreaWidth = workArea ? workArea.size.width / sf : (window.screen.availWidth || window.innerWidth)
+    const workAreaHeight = workArea ? workArea.size.height / sf : (window.screen.availHeight || window.innerHeight)
 
     // 先量内容栈实际高度，再加 root 内边距得到窗口总高
     const stackHeight = stackRef.value?.getBoundingClientRect().height ?? calcWindowHeight(count)
-    const maxWindowHeight = window.screen.availHeight || window.innerHeight
-    const newHeightLogical = Math.min(maxWindowHeight, stackHeight + PADDING * 2)
-    const workAreaBottomLogical = pos.y / sf + size.height / sf
-    const newYLogical = workAreaBottomLogical - newHeightLogical
+    // 窗口高度不超过工作区高度，避免超出屏幕
+    const newHeightLogical = Math.min(workAreaHeight, stackHeight + PADDING * 2)
+    // 贴右下角：x = 工作区右边缘 - 窗口宽度，y = 工作区下边缘 - 窗口高度
+    const newXLogical = workAreaX + workAreaWidth - WINDOW_WIDTH
+    const newYLogical = workAreaY + workAreaHeight - newHeightLogical
 
     debugInfo.value = {
       ...debugInfo.value,
       count,
       calcHeight: newHeightLogical,
-      beforeSize: { width: size.width, height: size.height },
-      beforePos: { x: pos.x, y: pos.y },
+      beforeSize: { width: 0, height: 0 },
+      beforePos: { x: 0, y: 0 },
       sf,
       error: '',
     }
 
     await win.setSize(new LogicalSize(WINDOW_WIDTH, newHeightLogical))
-    await win.setPosition(new LogicalPosition(pos.x / sf, newYLogical))
+    await win.setPosition(new LogicalPosition(newXLogical, newYLogical))
 
     const afterSize = await win.innerSize()
     const afterPos = await win.innerPosition()
@@ -368,6 +375,14 @@ async function addNotification(payload: {
   version?: string
   updateBody?: string
 }) {
+  // 同一类非持久提醒（护眼/喝水）只保留一个，避免快速测试时堆叠
+  if (payload.kind === 'eye' || payload.kind === 'water') {
+    const existing = notifications.value.find((n) => n.kind === payload.kind)
+    if (existing) {
+      removeNotification(existing.id, false)
+    }
+  }
+
   // 限制最大数量，移除最旧的通知（不带动画，避免和进入动画打架）
   while (notifications.value.length >= MAX_NOTIFICATIONS) {
     removeNotification(notifications.value[0].id, false)
@@ -410,6 +425,13 @@ async function addNotification(payload: {
     startTimer(item)
   }
   await adjustWindowSize()
+  scrollStackToBottom()
+}
+
+function scrollStackToBottom() {
+  if (stackRef.value) {
+    stackRef.value.scrollTop = stackRef.value.scrollHeight
+  }
 }
 
 function startTimer(item: ToastItem) {
@@ -856,6 +878,13 @@ async function handleUpdateInstall(item: ToastItem) {
   align-items: flex-end;
   gap: 0.75rem;
   width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.toast-stack::-webkit-scrollbar {
+  display: none;
 }
 
 .toast-root.debug-bg {
