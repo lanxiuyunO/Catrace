@@ -13,6 +13,7 @@ features:
     related:
       - reminder
       - toast-window
+      - eye-reminder
   toast-window:
     docs:
       - .agent/features/toast-window/README.md
@@ -20,6 +21,7 @@ features:
     related:
       - reminder
       - water-reminder
+      - eye-reminder
       - fullscreen-reminder
       - platform-input
   fullscreen-reminder:
@@ -77,6 +79,14 @@ features:
       - .agent/features/logging/README.md
     related:
       - settings
+  eye-reminder:
+    docs:
+      - .agent/features/eye-reminder/README.md
+    related:
+      - reminder
+      - water-reminder
+      - toast-window
+      - i18n
 
 architecture:
   project-structure:
@@ -117,7 +127,12 @@ decisions:
   - .agent/decisions/popup-removal-pending.md
   - .agent/decisions/window-focus-refactor.md
 
+bugs:
+  - .agent/bugs/2026-07-10-toast-concurrent-crash.md
+  - .agent/bugs/2026-07-10-toast-stacking-display.md
+
 devlog:
+  - .agent/devlog/2026-07-10-eye-reminder.md
   - .agent/devlog/2026-07-09-logging.md
   - .agent/devlog/2026-07-07-drop-rdev.md
 
