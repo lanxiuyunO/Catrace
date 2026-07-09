@@ -15,6 +15,8 @@ import {
   recordWater,
   snoozeWaterReminder,
   skipWaterReminder,
+  snoozeEyeReminder,
+  skipEyeReminder,
   getActivitySnapshot,
   dismissRestTimer,
 } from '../api/tauri'
@@ -22,7 +24,7 @@ import RestTimerBall from '../components/RestTimerBall.vue'
 
 const { t } = useI18n()
 
-type ToastKind = 'rest' | 'water' | 'update' | 'rest-timer'
+type ToastKind = 'rest' | 'water' | 'eye' | 'update' | 'rest-timer'
 
 interface ToastItem {
   id: number
@@ -617,6 +619,26 @@ async function handleWaterSkip(item: ToastItem) {
   removeNotification(item.id, true)
 }
 
+async function handleSnoozeEye(item: ToastItem, minutes: number) {
+  stopTimer(item)
+  try {
+    await snoozeEyeReminder(minutes)
+  } catch {
+    // ignore
+  }
+  removeNotification(item.id, true)
+}
+
+async function handleSkipEye(item: ToastItem) {
+  stopTimer(item)
+  try {
+    await skipEyeReminder()
+  } catch {
+    // ignore
+  }
+  removeNotification(item.id, true)
+}
+
 function toggleUpdateDetails(item: ToastItem) {
   item.showUpdateBody = !item.showUpdateBody
   nextTick(() => adjustWindowSize())
@@ -684,6 +706,7 @@ async function handleUpdateInstall(item: ToastItem) {
         :class="{
           visible: item.visible,
           'toast-card-water': item.kind === 'water',
+          'toast-card-eye': item.kind === 'eye',
           'toast-card-update': item.kind === 'update',
           'toast-card-rest-timer': item.kind === 'rest-timer',
         }"
@@ -767,6 +790,17 @@ async function handleUpdateInstall(item: ToastItem) {
             {{ $t('reminder.snooze10') }}
           </button>
           <button class="btn btn-primary" @click="handleSkip(item)">
+            {{ $t('reminder.skip') }}
+          </button>
+        </div>
+        <div v-else-if="item.kind === 'eye'" class="actions">
+          <button class="btn btn-secondary" @click="handleSnoozeEye(item, 5)">
+            {{ $t('reminder.snooze5') }}
+          </button>
+          <button class="btn btn-secondary" @click="handleSnoozeEye(item, 10)">
+            {{ $t('reminder.snooze10') }}
+          </button>
+          <button class="btn btn-primary" @click="handleSkipEye(item)">
             {{ $t('reminder.skip') }}
           </button>
         </div>
@@ -888,6 +922,43 @@ async function handleUpdateInstall(item: ToastItem) {
 }
 .toast-card-water .btn-primary:hover {
   background: #1D4ED8;
+}
+
+/* Eye reminder theming — fresh green accent */
+.toast-card-eye .pulse-dot {
+  background: #10B981;
+}
+
+.toast-card-eye .progress-bar {
+  background: linear-gradient(90deg, #059669, #34D399);
+}
+
+.toast-card-eye .title {
+  color: #065F46;
+}
+
+.toast-card-eye .close-btn:hover {
+  background: #ECFDF5;
+  color: #059669;
+}
+
+.toast-card-eye .body-text {
+  color: #047857;
+}
+
+.toast-card-eye .btn-secondary {
+  background: #ECFDF5;
+  color: #059669;
+}
+.toast-card-eye .btn-secondary:hover {
+  background: #D1FAE5;
+}
+
+.toast-card-eye .btn-primary {
+  background: #10B981;
+}
+.toast-card-eye .btn-primary:hover {
+  background: #059669;
 }
 
 /* Rest timer theming — calm wellness style */
