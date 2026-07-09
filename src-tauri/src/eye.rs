@@ -3,12 +3,12 @@ use std::time::{Duration, Instant};
 
 use crate::{db, reminder_toast, ReminderWindowStore};
 
-/// 视力提醒状态机（进程级，重启后重置）
+/// 护眼提醒状态机（进程级，重启后重置）
 #[derive(Default)]
 pub struct EyeReminderState {
     /// 推迟提醒直到该时刻
     pub snooze_until: Option<Instant>,
-    /// 最后一次发送视力提醒的时刻，用于防止同一分钟内重复触发
+    /// 最后一次发送护眼提醒的时刻，用于防止同一分钟内重复触发
     pub last_reminder_sent: Option<Instant>,
 }
 
@@ -28,7 +28,7 @@ impl EyeReminderState {
 
 fn eye_notify_title(locale: &str) -> &'static str {
     match locale {
-        "zh-CN" => "视力提醒",
+        "zh-CN" => "护眼提醒",
         _ => "Eye Care Reminder",
     }
 }
@@ -117,7 +117,7 @@ pub fn test_eye_notification(
 
 // ---------- 结算时检查 ----------
 
-/// 在每分钟结算时检查是否需要弹出视力提醒。
+/// 在每分钟结算时检查是否需要弹出护眼提醒。
 /// 仅在当前分钟活跃时检查；休息时不会打扰。
 pub fn check_and_notify(
     active: bool,

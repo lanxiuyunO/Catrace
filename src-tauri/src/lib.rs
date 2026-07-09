@@ -1358,7 +1358,7 @@ pub fn run() {
                         &store_for_settle,
                     );
 
-                    // 视力提醒逻辑（仅在当前分钟活跃时检查）
+                    // 护眼提醒逻辑（仅在当前分钟活跃时检查）
                     eye::check_and_notify(
                         active,
                         &db_clone,

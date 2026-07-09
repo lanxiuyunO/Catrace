@@ -127,7 +127,7 @@ export async function skipEyeReminder(): Promise<void> {
   return invoke('skip_eye_reminder')
 }
 
-/** 发送一条测试视力提醒 */
+/** 发送一条测试护眼提醒 */
 export async function testEyeNotification(): Promise<void> {
   return invoke('test_eye_notification')
 }
