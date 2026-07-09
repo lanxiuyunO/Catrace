@@ -1,0 +1,120 @@
+features:
+  reminder:
+    docs:
+      - .agent/features/reminder/README.md
+    related:
+      - water-reminder
+      - toast-window
+      - fullscreen-reminder
+      - database
+  water-reminder:
+    docs:
+      - .agent/features/water-reminder/README.md
+    related:
+      - reminder
+      - toast-window
+  toast-window:
+    docs:
+      - .agent/features/toast-window/README.md
+      - .agent/features/toast-window/development-notes.md
+    related:
+      - reminder
+      - water-reminder
+      - fullscreen-reminder
+      - platform-input
+  fullscreen-reminder:
+    docs:
+      - .agent/features/fullscreen-reminder/README.md
+    related:
+      - reminder
+      - theme
+  dashboard:
+    docs:
+      - .agent/features/dashboard/README.md
+    related:
+      - timeline
+      - water-reminder
+      - theme
+  timeline:
+    docs:
+      - .agent/features/timeline/README.md
+    related:
+      - dashboard
+  settings:
+    docs:
+      - .agent/features/settings/README.md
+    related:
+      - media-audio
+      - i18n
+      - water-reminder
+  media-audio:
+    docs:
+      - .agent/features/media-audio/README.md
+    related:
+      - settings
+  i18n:
+    docs:
+      - .agent/features/i18n/README.md
+    related:
+      - settings
+  auto-update:
+    docs:
+      - .agent/features/auto-update/README.md
+    related:
+      - toast-window
+  report:
+    docs:
+      - .agent/features/report/README.md
+    related:
+      - security
+  input-monitoring:
+    docs:
+      - .agent/features/input-monitoring/README.md
+    related:
+      - platform-input
+
+architecture:
+  project-structure:
+    docs:
+      - .agent/architecture/project-structure/README.md
+    related:
+      - theme
+      - database
+  platform-input:
+    docs:
+      - .agent/architecture/platform-input/README.md
+    related:
+      - input-monitoring
+  theme:
+    docs:
+      - .agent/architecture/theme/README.md
+    related:
+      - dashboard
+  database:
+    docs:
+      - .agent/architecture/database/README.md
+    related:
+      - reminder
+  security:
+    docs:
+      - .agent/architecture/security/README.md
+    related:
+      - report
+
+reference:
+  - .agent/reference/test-strategy.md
+  - .agent/reference/config-reference.md
+  - .agent/reference/version-management.md
+
+decisions:
+  - .agent/decisions/2026-07-07-drop-rdev-for-device-query.md
+  - .agent/decisions/gsmtcsm-removal.md
+  - .agent/decisions/popup-removal-pending.md
+  - .agent/decisions/window-focus-refactor.md
+
+devlog:
+  - .agent/devlog/2026-07-07-drop-rdev.md
+
+current:
+  phase: 稳定运行
+  next: 无
