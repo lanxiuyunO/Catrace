@@ -103,7 +103,14 @@ pub fn test_eye_notification(
     app_handle: tauri::AppHandle,
     db: tauri::State<db::Db>,
     store: tauri::State<ReminderWindowStore>,
+    state: tauri::State<Arc<Mutex<EyeReminderState>>>,
 ) {
+    let mut s = state.lock().unwrap();
+    if !s.can_send_reminder() {
+        return;
+    }
+    s.last_reminder_sent = Some(Instant::now());
+    drop(s);
     let locale = db.get_setting("locale", "zh-CN");
     show_eye_notification(&app_handle, &locale, &store);
 }
