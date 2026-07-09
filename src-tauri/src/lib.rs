@@ -287,6 +287,33 @@ fn set_media_whitelist_text(
     Ok(())
 }
 
+/** 打开日志目录，方便用户打包日志文件反馈问题。 */
+#[tauri::command]
+fn open_logs_dir() -> Result<(), String> {
+    if let Some(dir) = log::logs_dir() {
+        tauri_plugin_opener::open_path(dir, None::<&str>)
+            .map_err(|e| format!("Failed to open logs dir: {}", e))?;
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct FrontendLogPayload {
+    level: String,
+    message: String,
+}
+
+/** 接收前端 console 日志并写入同一日志文件。 */
+#[tauri::command]
+fn log_frontend(payload: FrontendLogPayload) {
+    let level = payload.level.as_str();
+    match level {
+        "error" => log_error!("frontend", "{}", payload.message),
+        "warn" => log_warn!("frontend", "{}", payload.message),
+        _ => log_info!("frontend", "{}", payload.message),
+    }
+}
+
 /** 获取 Toast 调试模式开关状态（默认 false）。 */
 #[tauri::command]
 fn get_toast_debug_mode(db: tauri::State<db::Db>) -> bool {
@@ -1097,12 +1124,12 @@ pub fn run() {
             let mouse_state = state.clone();
             let settle_state = state.clone();
 
-            // 初始化统一日志系统（推送到前端控制台）
-            log::init(app.app_handle().clone());
-
-            // 初始化数据库
+            // 初始化统一日志系统（写入本地文件）
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
+            log::init(&app_data_dir);
+
+            // 初始化数据库
             let db_path = app_data_dir.join("catrace.db");
             let db = db::Db::new(&db_path).expect("Failed to initialize database");
 
@@ -1395,6 +1422,8 @@ pub fn run() {
             set_media_whitelist_text,
             get_toast_debug_mode,
             set_toast_debug_mode,
+            open_logs_dir,
+            log_frontend,
             show_main_window,
             hide_main_window,
             get_today_stats,

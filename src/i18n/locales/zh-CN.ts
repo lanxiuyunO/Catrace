@@ -171,6 +171,7 @@ export default {
     logFilterError: '错误',
     logFilterWarn: '警告',
     logFilterInfo: '信息',
+    openLogsDir: '日志目录',
   },
   timeline: {
     active: '活跃',

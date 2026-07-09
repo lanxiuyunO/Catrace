@@ -1,17 +1,73 @@
-/// 统一日志模块：将所有后端日志通过 Tauri event 推送到前端控制台。
-/// 使用方式：
-///   log!("key", "info message {}", arg);
-///   log!("key", "warn message {}", arg);   // 标签含 "warn" → console.warn
-///   log!("key", "error message {}", arg);  // 标签含 "error/failed" → console.error
-///
-/// 每条日志同时输出到 stderr 和前端 `catrace-log` 事件。
-use std::sync::OnceLock;
-use tauri::Emitter;
+/// 统一日志模块：所有后端日志写入本地文件，并按天轮转保留最近 7 天。
+/// 同时保留 stderr 输出，方便开发者本地调试。
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
-static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
+static CURRENT_FILE: OnceLock<Mutex<Option<std::fs::File>>> = OnceLock::new();
+static CURRENT_DATE: OnceLock<Mutex<String>> = OnceLock::new();
 
-pub fn init(app_handle: tauri::AppHandle) {
-    let _ = APP_HANDLE.set(app_handle);
+const KEEP_DAYS: i64 = 7;
+
+pub fn init(app_data_dir: &Path) {
+    let logs_dir = app_data_dir.join("logs");
+    let _ = fs::create_dir_all(&logs_dir);
+    let _ = LOG_DIR.set(logs_dir.clone());
+    let _ = CURRENT_FILE.set(Mutex::new(None));
+    let _ = CURRENT_DATE.set(Mutex::new(String::new()));
+
+    cleanup_old_logs(&logs_dir);
+}
+
+fn cleanup_old_logs(logs_dir: &Path) {
+    let cutoff = chrono::Local::now() - chrono::Duration::days(KEEP_DAYS);
+    if let Ok(entries) = fs::read_dir(logs_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if let Some(date_str) = name.strip_prefix("catrace-").and_then(|s| s.strip_suffix(".log")) {
+                    if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+                        if date < cutoff.naive_local().date() {
+                            let _ = fs::remove_file(&path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn today_file_path(logs_dir: &Path, date: &str) -> PathBuf {
+    logs_dir.join(format!("catrace-{}.log", date))
+}
+
+fn ensure_writer() {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    {
+        let current = CURRENT_DATE.get().unwrap().lock().unwrap();
+        if *current == today {
+            return;
+        }
+    }
+
+    let logs_dir = LOG_DIR.get().expect("log dir not initialized");
+    let path = today_file_path(logs_dir, &today);
+
+    match OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(file) => {
+            let mut writer = CURRENT_FILE.get().unwrap().lock().unwrap();
+            *writer = Some(file);
+            let mut date = CURRENT_DATE.get().unwrap().lock().unwrap();
+            *date = today;
+        }
+        Err(e) => {
+            eprintln!("[log] failed to open log file {}: {}", path.display(), e);
+        }
+    }
 }
 
 pub fn emit_log(tag: &str, level: &str, msg: String) {
@@ -19,19 +75,19 @@ pub fn emit_log(tag: &str, level: &str, msg: String) {
         .format("%Y-%m-%d %H:%M:%S")
         .to_string();
 
-    // stderr 同时打印，方便开发者终端查看
-    eprintln!("[{}] [{}] {}", tag, level, msg);
+    let line = format!("[{}] [{}] [{}] {}\n", ts, tag, level, msg);
 
-    if let Some(handle) = APP_HANDLE.get() {
-        let _ = handle.emit(
-            "catrace-log",
-            serde_json::json!({
-                "timestamp": ts,
-                "tag": tag,
-                "level": level,
-                "message": msg,
-            }),
-        );
+    // 总是输出到 stderr
+    eprint!("{}", line);
+
+    // 写入文件
+    ensure_writer();
+    {
+        let mut guard = CURRENT_FILE.get().unwrap().lock().unwrap();
+        if let Some(file) = guard.as_mut() {
+            let _ = file.write_all(line.as_bytes());
+            let _ = file.flush();
+        }
     }
 }
 
@@ -79,4 +135,9 @@ macro_rules! log {
         };
         $crate::log::emit_log(tag_str, level, msg);
     }};
+}
+
+/// 获取日志目录路径，用于前端打开。
+pub fn logs_dir() -> Option<&'static Path> {
+    LOG_DIR.get().map(|p| p.as_path())
 }

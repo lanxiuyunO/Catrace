@@ -171,6 +171,7 @@ export default {
     logFilterError: 'Error',
     logFilterWarn: 'Warn',
     logFilterInfo: 'Info',
+    openLogsDir: 'Logs Folder',
   },
   timeline: {
     active: 'Active',
