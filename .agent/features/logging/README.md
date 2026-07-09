@@ -8,9 +8,8 @@
 - `src-tauri/src/lib.rs` — `log::init` 调用、`log_frontend` 命令、打开日志目录
 - `src/api/tauri.ts` — `logFrontend()` / `openLogsDir()` 调用封装
 - `src/main.ts` — 覆盖 `console.log/warn/error`，把前端日志转发到后端
-- `src/views/Debug.vue` — 提供「日志目录」按钮
-- `src/components/settings/LinksSettingsCard.vue` — 设置页「相关链接」里也提供「日志目录」入口
-- `src/i18n/locales/zh-CN.ts` / `en-US.ts` — `debug.openLogsDir` / `settings.links.logsDesc` 翻译
+- `src/components/settings/LinksSettingsCard.vue` — 设置页「相关链接」里提供「日志目录」入口
+- `src/i18n/locales/zh-CN.ts` / `en-US.ts` — `settings.links.logsDesc` 翻译
 
 ## 关键行为
 

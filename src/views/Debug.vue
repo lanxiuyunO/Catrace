@@ -22,7 +22,6 @@ import {
   setToastDebugMode,
   startNotificationTest,
   stopNotificationTest,
-  openLogsDir,
 } from '../api/tauri'
 
 const { t } = useI18n()
@@ -48,14 +47,6 @@ async function toggleToastDebugMode(value: boolean) {
   try {
     await setToastDebugMode(value)
     toastDebugMode.value = value
-  } catch (e: any) {
-    console.error(e)
-  }
-}
-
-async function openLogs() {
-  try {
-    await openLogsDir()
   } catch (e: any) {
     console.error(e)
   }
@@ -122,7 +113,6 @@ onDeactivated(() => {
           <span class="debug-switch-label">Toast 调试背景</span>
           <n-switch :value="toastDebugMode" @update:value="toggleToastDebugMode" />
         </n-space>
-        <n-button size="small" @click="openLogs">{{ t('debug.openLogsDir') }}</n-button>
         <n-button size="small" :loading="loading" @click="refresh(true)">{{ t('debug.refresh') }}</n-button>
       </div>
     </div>
