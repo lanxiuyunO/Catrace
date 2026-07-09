@@ -17,6 +17,7 @@ import { zhCN as naiveZhCN, enUS as naiveEnUS } from 'naive-ui'
 import ReminderPopup from './views/ReminderPopup.vue'
 import ReminderFullscreen from './views/ReminderFullscreen.vue'
 import ReminderToast from './views/ReminderToast.vue'
+import LogViewer from './components/LogViewer.vue'
 
 const route = useRoute()
 const { t, locale } = useI18n()
@@ -101,6 +102,7 @@ watch(needsTransparentBg, (val) => {
           </RouterView>
         </n-layout-content>
       </n-layout>
+      <LogViewer />  <!-- 全局浮动日志，提醒窗口不渲染 -->
     </n-message-provider>
   </n-config-provider>
 </template>
