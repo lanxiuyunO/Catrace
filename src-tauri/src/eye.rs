@@ -95,7 +95,8 @@ pub fn test_eye_notification(
 /// 规则：连续用电脑满 interval 分钟弹一次；中途真正休息过
 /// （连续不活跃 >= break_minutes）就从休息结束重新计时。
 /// 实现上，计时起点取「上次提醒时间」和「上次真正休息结束时间」里更晚的那个；
-/// 两者都还没有（刚启动）→ 立刻弹一次。
+/// 实现上，计时起点取「上次提醒时间」和「上次真正休息结束时间」里更晚的那个；
+/// 两者都还没有（刚启动）时以现在为起点、本轮不弹，等满一个 interval 再说。
 pub fn check_and_notify(
     break_minutes: i64,
     db: &db::Db,
@@ -126,9 +127,13 @@ pub fn check_and_notify(
         (Some(a), Some(b)) => std::cmp::max(a, b),
         (Some(a), None) => a,
         (None, Some(b)) => b,
-        (None, None) => 0,
+        (None, None) => {
+            // 首次启动无历史：以现在为计时起点，本轮不弹，等满一个 interval
+            let _ = db.set_setting("eye_last_reminder_ts", &now_ts.to_string());
+            return;
+        }
     };
-    let overdue = base_ts == 0 || now_ts - base_ts >= eye_interval * 60;
+    let overdue = now_ts - base_ts >= eye_interval * 60;
 
     if overdue {
         let mut state = eye_state.lock().unwrap();
