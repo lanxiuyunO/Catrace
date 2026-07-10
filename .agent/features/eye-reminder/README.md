@@ -14,10 +14,13 @@
 
 ## 触发逻辑
 
-- 仅当前分钟**活跃**时检查；休息期间不提醒
-- 距上次护眼提醒超过 `eye_interval_minutes` → 右下角 Toast
-- 触发后记录 `eye_last_reminder_ts`，等待下一个间隔再次触发
+- `lib.rs` 结算循环仅在当前分钟**活跃**时调用 `eye::check_and_notify`；休息期间不进入函数，eye/water 模块内不再做 active 守卫
+- 触发基准时间戳 `base_ts = max(eye_last_reminder_ts, last_real_rest_ts)`，两者任一为空时退化为另一个；皆空视为首次，立即提醒
+- `last_real_rest_ts` 来自 `Db::get_last_real_rest_ts(break_minutes)`：今天最近一次「连续不活跃 ≥ break_minutes」的结束时间戳
+- 当 `now_ts - base_ts ≥ eye_interval_minutes * 60` → 右下角 Toast；触发后写回 `eye_last_reminder_ts = now_ts`
 - 同一秒内重复触发会被 `EyeReminderState::can_send_reminder` 过滤
+
+> **为什么用 max 而不是让 lib.rs 在真正休息时改写 `eye_last_reminder_ts`：** 后者会把 eye 的内部 key 和「真正休息后重置」这条业务规则泄漏到 settle 循环，eye 模块不再自包含。取较晚值在概念上等价于「休息完重新计时」，且把判断留在 eye 内部，代价只是每分钟多扫一次今日记录（最多 1440 行，命中 break_minutes 连休即停）。
 
 ## UI
 
@@ -42,3 +45,4 @@
 
 - [[water-reminder]] — 同类提醒系统的实现参考
 - [[toast-window]] — Toast 通知承载窗口
+- [[database]] — `get_last_real_rest_ts` 真正休息查询

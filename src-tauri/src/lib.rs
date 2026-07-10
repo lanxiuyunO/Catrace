@@ -1349,24 +1349,25 @@ pub fn run() {
                     }
 
                     // 喝水提醒逻辑（仅在当前分钟活跃时检查）
-                    water::check_and_notify(
-                        active,
-                        &db_clone,
-                        &water_state_for_settle,
-                        &app_handle,
-                        &locale,
-                        &store_for_settle,
-                    );
+                    if active {
+                        water::check_and_notify(
+                            &db_clone,
+                            &water_state_for_settle,
+                            &app_handle,
+                            &locale,
+                            &store_for_settle,
+                        );
 
-                    // 护眼提醒逻辑（仅在当前分钟活跃时检查）
-                    eye::check_and_notify(
-                        active,
-                        &db_clone,
-                        &eye_state_for_settle,
-                        &app_handle,
-                        &locale,
-                        &store_for_settle,
-                    );
+                        // 护眼提醒逻辑（仅在当前分钟活跃时检查）
+                        eye::check_and_notify(
+                            break_m,
+                            &db_clone,
+                            &eye_state_for_settle,
+                            &app_handle,
+                            &locale,
+                            &store_for_settle,
+                        );
+                    }
                 }
             });
 

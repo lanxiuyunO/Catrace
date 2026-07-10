@@ -90,9 +90,13 @@ pub fn test_eye_notification(
 // ---------- 结算时检查 ----------
 
 /// 在每分钟结算时检查是否需要弹出护眼提醒。
-/// 仅在当前分钟活跃时检查；休息时不会打扰。
+/// 调用方保证当前分钟处于活跃状态（休息时不会调用）。
+/// 同时需要满足：
+/// 1. 距离上次发送护眼提醒超过 interval
+/// 2. 距离上次真正休息（连续不活跃 >= break_minutes）超过 interval
+/// 两者取较晚者作为基准，相当于「休息完护眼计时重置」。
 pub fn check_and_notify(
-    active: bool,
+    break_minutes: i64,
     db: &db::Db,
     eye_state: &Arc<Mutex<EyeReminderState>>,
     app_handle: &tauri::AppHandle,
@@ -100,7 +104,7 @@ pub fn check_and_notify(
     store: &ReminderWindowStore,
 ) {
     let eye_enabled = db.get_setting("eye_reminder_enabled", "true") == "true";
-    if !active || !eye_enabled {
+    if !eye_enabled {
         return;
     }
 
@@ -109,13 +113,21 @@ pub fn check_and_notify(
         .parse()
         .unwrap_or(20);
     let now_ts = chrono::Local::now().timestamp();
-    let overdue = match db
+
+    let last_reminder_ts = db
         .get_setting("eye_last_reminder_ts", "")
         .parse::<i64>()
-    {
-        Ok(last_ts) if last_ts > 0 => now_ts - last_ts >= eye_interval * 60,
-        _ => true,
+        .ok()
+        .filter(|t| *t > 0);
+    let last_real_rest_ts = db.get_last_real_rest_ts(break_minutes).ok().flatten();
+
+    let base_ts = match (last_reminder_ts, last_real_rest_ts) {
+        (Some(a), Some(b)) => std::cmp::max(a, b),
+        (Some(a), None) => a,
+        (None, Some(b)) => b,
+        (None, None) => 0,
     };
+    let overdue = base_ts == 0 || now_ts - base_ts >= eye_interval * 60;
 
     if overdue {
         let mut state = eye_state.lock().unwrap();

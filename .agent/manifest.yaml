@@ -132,10 +132,11 @@ bugs:
   - .agent/bugs/2026-07-10-toast-stacking-display.md
 
 devlog:
+  - .agent/devlog/2026-07-10-eye-reminder-rest-reset.md
   - .agent/devlog/2026-07-10-eye-reminder.md
   - .agent/devlog/2026-07-09-logging.md
   - .agent/devlog/2026-07-07-drop-rdev.md
 
 current:
-  phase: 护眼提醒倒计时与组件拆分已完成
+  phase: 护眼提醒触发逻辑改为「上次提醒与真正休息取较晚者」，active 守卫上移
   next: 按需拆分喝水/休息/更新等其余 Toast 卡片类型
