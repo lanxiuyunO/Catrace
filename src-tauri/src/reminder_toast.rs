@@ -141,9 +141,9 @@ pub fn create_toast_window(
         // 串行化 WebviewWindow 操作，防止快速连续触发导致并发崩溃
         let _guard = TOAST_MUTEX.lock().await;
 
-        // 窗口已存在：先重新定位到正确显示器的右下角，再追加通知
+        // 窗口已存在：前端会在 adjustWindowSize 里自己贴到当前显示器右下角，
+        // Rust 端只需追加通知并显示，避免两边 reposition 打架。
         if let Some(window) = app.get_webview_window(TOAST_WINDOW_LABEL) {
-            let _ = position_toast_window(&window, &app);
             let payload = serde_json::json!({
                 "kind": data.kind,
                 "boundary": data.boundary,
@@ -226,9 +226,8 @@ pub fn create_update_toast_window(
         // 串行化 WebviewWindow 操作，防止快速连续触发导致并发崩溃
         let _guard = TOAST_MUTEX.lock().await;
 
-        // 窗口已存在：先重新定位到正确显示器的右下角，再追加通知
+        // 窗口已存在：前端会自己定位，Rust 端只追加通知并显示
         if let Some(window) = app.get_webview_window(TOAST_WINDOW_LABEL) {
-            let _ = position_toast_window(&window, &app);
             let _ = window.eval(&js);
             let route_js = "window.__CATRACE_REMINDER_TYPE__ = 'toast'; window.location.hash = '#/reminder-toast';";
             let _ = window.eval(route_js);

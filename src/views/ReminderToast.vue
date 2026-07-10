@@ -204,8 +204,8 @@ async function adjustWindowSize() {
     const workAreaWidth = workArea ? workArea.size.width / sf : (window.screen.availWidth || window.innerWidth)
     const workAreaHeight = workArea ? workArea.size.height / sf : (window.screen.availHeight || window.innerHeight)
 
-    // 先量内容栈实际高度，再加 root 内边距得到窗口总高
-    const stackHeight = stackRef.value?.getBoundingClientRect().height ?? calcWindowHeight(count)
+    // 量内容栈总高度（含被 max-height 隐藏的溢出部分），再加 root 内边距得到窗口总高
+    const stackHeight = stackRef.value?.scrollHeight ?? calcWindowHeight(count)
     // 窗口高度不超过工作区高度，避免超出屏幕
     const newHeightLogical = Math.min(workAreaHeight, stackHeight + PADDING * 2)
     // 贴右下角：x = 工作区右边缘 - 窗口宽度，y = 工作区下边缘 - 窗口高度
