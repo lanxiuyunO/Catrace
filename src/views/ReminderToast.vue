@@ -16,12 +16,11 @@ import {
   recordWater,
   snoozeWaterReminder,
   skipWaterReminder,
-  snoozeEyeReminder,
-  skipEyeReminder,
   getActivitySnapshot,
   dismissRestTimer,
 } from '../api/tauri'
 import RestTimerBall from '../components/RestTimerBall.vue'
+import EyeToastCard from '../components/EyeToastCard.vue'
 
 const { t } = useI18n()
 
@@ -38,6 +37,7 @@ interface ToastItem {
   remainingMs: number
   closeTimer: ReturnType<typeof setTimeout> | null
   lastStartAt: number
+  totalMs: number
   leaving?: boolean
   version?: string
   updateBody?: string
@@ -73,6 +73,7 @@ const REST_POLL_MS = 2000
 const REST_TIMER_REMOVE_DELAY_MS = 4000
 
 const AUTO_HIDE_MS = 8000
+const EYE_AUTO_HIDE_MS = 25000
 const MAX_NOTIFICATIONS = 5
 const CARD_HEIGHT = 180
 const CARD_GAP = 12
@@ -285,6 +286,7 @@ function updateRestTimer(payload: {
       restStartTs: payload.rest_start_ts,
       restStreak: payload.rest_streak,
       isComplete: payload.is_complete,
+      totalMs: 0,
     }
     notifications.value.push(item)
     requestAnimationFrame(() => {
@@ -390,6 +392,7 @@ async function addNotification(payload: {
 
   const id = ++idCounter
   const isUpdate = payload.kind === 'update'
+  const autoHideMs = payload.kind === 'eye' ? EYE_AUTO_HIDE_MS : AUTO_HIDE_MS
   const item: ToastItem = {
     id,
     kind: payload.kind,
@@ -398,7 +401,7 @@ async function addNotification(payload: {
     boundary: payload.boundary ?? 0,
     visible: false,
     isHovered: false,
-    remainingMs: isUpdate ? 0 : AUTO_HIDE_MS,
+    remainingMs: isUpdate ? 0 : autoHideMs,
     closeTimer: null,
     lastStartAt: 0,
     version: payload.version || '',
@@ -408,6 +411,7 @@ async function addNotification(payload: {
     downloadProgress: 0,
     downloadTotal: 0,
     downloadReceived: 0,
+    totalMs: autoHideMs,
   }
 
   // 新通知加到底部（数组末尾）
@@ -437,6 +441,7 @@ function scrollStackToBottom() {
 function startTimer(item: ToastItem) {
   stopTimer(item)
   item.lastStartAt = Date.now()
+  item.totalMs = item.remainingMs
   item.closeTimer = setTimeout(() => {
     removeNotification(item.id, true)
   }, item.remainingMs)
@@ -452,14 +457,14 @@ function stopTimer(item: ToastItem) {
 }
 
 function handleMouseEnter(item: ToastItem) {
-  // 休息计时卡片不依赖 hover 控制生命周期
-  if (item.kind === 'rest-timer') return
+  // 护眼提醒 hover 不暂停倒计时；休息计时卡片不依赖 hover 控制生命周期
+  if (item.kind === 'eye' || item.kind === 'rest-timer') return
   item.isHovered = true
   stopTimer(item)
 }
 
 function handleMouseLeave(item: ToastItem) {
-  if (item.kind === 'rest-timer') return
+  if (item.kind === 'eye' || item.kind === 'rest-timer') return
   item.isHovered = false
   if (item.remainingMs > 0) {
     startTimer(item)
@@ -641,26 +646,6 @@ async function handleWaterSkip(item: ToastItem) {
   removeNotification(item.id, true)
 }
 
-async function handleSnoozeEye(item: ToastItem, minutes: number) {
-  stopTimer(item)
-  try {
-    await snoozeEyeReminder(minutes)
-  } catch {
-    // ignore
-  }
-  removeNotification(item.id, true)
-}
-
-async function handleSkipEye(item: ToastItem) {
-  stopTimer(item)
-  try {
-    await skipEyeReminder()
-  } catch {
-    // ignore
-  }
-  removeNotification(item.id, true)
-}
-
 function toggleUpdateDetails(item: ToastItem) {
   item.showUpdateBody = !item.showUpdateBody
   nextTick(() => adjustWindowSize())
@@ -735,8 +720,18 @@ async function handleUpdateInstall(item: ToastItem) {
         @mouseenter="handleMouseEnter(item)"
         @mouseleave="handleMouseLeave(item)"
       >
+        <EyeToastCard
+          v-if="item.kind === 'eye'"
+          :title="item.title"
+          :body="item.body"
+          :remaining-ms="item.remainingMs"
+          :last-start-at="item.lastStartAt"
+          :total-ms="item.totalMs"
+          @close="handleClose(item)"
+        />
+
         <!-- Header -->
-        <div class="header">
+        <div v-if="item.kind !== 'eye'" class="header">
           <div class="header-left">
             <div class="pulse-dot" />
             <h2 v-if="item.kind === 'update'" class="title">
@@ -757,7 +752,11 @@ async function handleUpdateInstall(item: ToastItem) {
         </div>
 
         <!-- Progress bar (auto-hide timer, not shown for update / rest-timer cards) -->
-        <div v-if="item.kind !== 'update' && item.kind !== 'rest-timer'" class="progress-bar" :class="{ paused: item.isHovered }" />
+        <div
+          v-if="item.kind !== 'eye' && item.kind !== 'update' && item.kind !== 'rest-timer'"
+          class="progress-bar"
+          :class="{ paused: item.isHovered }"
+        />
 
         <!-- Rest timer liquid ball -->
         <div v-if="item.kind === 'rest-timer'" class="rest-timer-visual">
@@ -815,19 +814,8 @@ async function handleUpdateInstall(item: ToastItem) {
             {{ $t('reminder.skip') }}
           </button>
         </div>
-        <div v-else-if="item.kind === 'eye'" class="actions">
-          <button class="btn btn-secondary" @click="handleSnoozeEye(item, 5)">
-            {{ $t('reminder.snooze5') }}
-          </button>
-          <button class="btn btn-secondary" @click="handleSnoozeEye(item, 10)">
-            {{ $t('reminder.snooze10') }}
-          </button>
-          <button class="btn btn-primary" @click="handleSkipEye(item)">
-            {{ $t('reminder.skip') }}
-          </button>
-        </div>
         <div v-else-if="item.kind === 'rest-timer'" class="actions"></div>
-        <div v-else class="actions">
+        <div v-else-if="item.kind === 'water'" class="actions">
           <button class="btn btn-water" @click="handleDrinkWater(item)">
             {{ $t('water.drank') }}
           </button>
@@ -953,41 +941,9 @@ async function handleUpdateInstall(item: ToastItem) {
   background: #1D4ED8;
 }
 
-/* Eye reminder theming — fresh green accent */
-.toast-card-eye .pulse-dot {
-  background: #10B981;
-}
-
-.toast-card-eye .progress-bar {
-  background: linear-gradient(90deg, #059669, #34D399);
-}
-
-.toast-card-eye .title {
-  color: #065F46;
-}
-
-.toast-card-eye .close-btn:hover {
-  background: #ECFDF5;
-  color: #059669;
-}
-
-.toast-card-eye .body-text {
-  color: #047857;
-}
-
-.toast-card-eye .btn-secondary {
-  background: #ECFDF5;
-  color: #059669;
-}
-.toast-card-eye .btn-secondary:hover {
-  background: #D1FAE5;
-}
-
-.toast-card-eye .btn-primary {
-  background: #10B981;
-}
-.toast-card-eye .btn-primary:hover {
-  background: #059669;
+/* Eye reminder: keep wrapper sizing minimal */
+.toast-card-eye {
+  min-height: auto;
 }
 
 /* Rest timer theming — calm wellness style */

@@ -119,14 +119,6 @@ export async function setEyeSettings(enabled: boolean, intervalMinutes: number):
   return invoke('set_eye_settings', { enabled, intervalMinutes })
 }
 
-export async function snoozeEyeReminder(minutes: number): Promise<void> {
-  return invoke('snooze_eye_reminder', { minutes })
-}
-
-export async function skipEyeReminder(): Promise<void> {
-  return invoke('skip_eye_reminder')
-}
-
 /** 发送一条测试护眼提醒 */
 export async function testEyeNotification(): Promise<void> {
   return invoke('test_eye_notification')

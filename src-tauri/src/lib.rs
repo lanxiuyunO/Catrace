@@ -1451,8 +1451,6 @@ pub fn run() {
             water::test_water_notification,
             eye::get_eye_settings,
             eye::set_eye_settings,
-            eye::snooze_eye_reminder,
-            eye::skip_eye_reminder,
             eye::test_eye_notification,
             get_media_debug_info,
             get_activity_snapshot,

@@ -6,17 +6,11 @@ use crate::{db, reminder_toast, ReminderWindowStore};
 /// 护眼提醒状态机（进程级，重启后重置）
 #[derive(Default)]
 pub struct EyeReminderState {
-    /// 推迟提醒直到该时刻
-    pub snooze_until: Option<Instant>,
-    /// 最后一次发送护眼提醒的时刻，用于防止同一分钟内重复触发
+    /// 最后一次发送护眼提醒的时刻，用于防止同一秒内重复触发
     pub last_reminder_sent: Option<Instant>,
 }
 
 impl EyeReminderState {
-    pub fn is_snoozed(&self) -> bool {
-        self.snooze_until.map_or(false, |t| t > Instant::now())
-    }
-
     /// 距离上次发送是否已超过 1 秒，避免同一秒内重复弹窗
     pub fn can_send_reminder(&self) -> bool {
         self.last_reminder_sent
@@ -77,28 +71,6 @@ pub fn set_eye_settings(
 }
 
 #[tauri::command]
-pub fn snooze_eye_reminder(
-    minutes: u64,
-    state: tauri::State<Arc<Mutex<EyeReminderState>>>,
-) {
-    let mut s = state.lock().unwrap();
-    s.snooze_until = Some(Instant::now() + Duration::from_secs(minutes * 60));
-}
-
-#[tauri::command]
-pub fn skip_eye_reminder(
-    db: tauri::State<db::Db>,
-    state: tauri::State<Arc<Mutex<EyeReminderState>>>,
-) {
-    let eye_interval: u64 = db
-        .get_setting("eye_interval_minutes", "20")
-        .parse()
-        .unwrap_or(20);
-    let mut s = state.lock().unwrap();
-    s.snooze_until = Some(Instant::now() + Duration::from_secs(eye_interval * 60));
-}
-
-#[tauri::command]
 pub fn test_eye_notification(
     app_handle: tauri::AppHandle,
     db: tauri::State<db::Db>,
@@ -147,11 +119,8 @@ pub fn check_and_notify(
 
     if overdue {
         let mut state = eye_state.lock().unwrap();
-        if !state.is_snoozed() && state.can_send_reminder() {
+        if state.can_send_reminder() {
             state.last_reminder_sent = Some(Instant::now());
-            state.snooze_until = Some(
-                Instant::now() + Duration::from_secs((eye_interval as u64) * 60),
-            );
             drop(state);
             let _ = db.set_setting("eye_last_reminder_ts", &now_ts.to_string());
             show_eye_notification(app_handle, locale, store);
@@ -163,18 +132,6 @@ pub fn check_and_notify(
 mod tests {
     use super::*;
     use std::thread;
-
-    #[test]
-    fn test_eye_state_snooze() {
-        let mut state = EyeReminderState::default();
-        assert!(!state.is_snoozed());
-
-        state.snooze_until = Some(Instant::now() + Duration::from_secs(60));
-        assert!(state.is_snoozed());
-
-        state.snooze_until = Some(Instant::now() - Duration::from_secs(1));
-        assert!(!state.is_snoozed());
-    }
 
     #[test]
     fn test_eye_state_can_send_reminder() {
