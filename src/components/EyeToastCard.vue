@@ -57,7 +57,6 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
       </button>
     </div>
     <div class="progress-bar" :style="{ width: `${progress}%` }" />
-    <p class="body-text">{{ body }}</p>
   </div>
 </template>
 
@@ -145,16 +144,6 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
   height: 0.1875rem;
   background: linear-gradient(90deg, #059669, #34D399);
   border-radius: 0.125rem;
-  margin: 0.625rem 0 0.75rem;
-}
-
-.body-text {
-  font-size: 0.875rem;
-  color: #047857;
-  line-height: 1.6;
-  margin: 0;
-  word-break: break-word;
-  flex: 1 1 auto;
-  min-height: 0;
+  margin: 0.5rem 0 0;
 }
 </style>
