@@ -137,5 +137,5 @@ devlog:
   - .agent/devlog/2026-07-07-drop-rdev.md
 
 current:
-  phase: 稳定运行
-  next: 评估是否为日志增加单个文件大小限制
+  phase: 护眼提醒倒计时与组件拆分已完成
+  next: 按需拆分喝水/休息/更新等其余 Toast 卡片类型

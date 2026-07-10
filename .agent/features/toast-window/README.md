@@ -4,9 +4,10 @@
 
 ## 涉及文件
 
-- `src-tauri/src/reminder_toast.rs` — Toast 窗口创建、位置计算、尺寸调整
+- `src-tauri/src/reminder_toast.rs` — Toast 窗口创建/复用；兜底创建分支才定位，已有窗口由前端定位
 - `src-tauri/src/window_manager/` — 无焦点显示（Windows `WS_EX_NOACTIVATE`）
-- `src/views/ReminderToast.vue` — 前端卡片堆叠 + 动画
+- `src/views/ReminderToast.vue` — 前端卡片堆叠、窗口尺寸/位置调整、动画
+- `src/components/EyeToastCard.vue` — 护眼提醒专用卡片
 
 ## 窗口特性
 
@@ -18,8 +19,7 @@
 ## 卡片行为
 
 - 新卡片右侧滑入，关闭时 FLIP 动画让下方卡片上移
-- 8 秒自动消失，hover 暂停，离开恢复
-- 「5分钟后提醒」「10分钟后提醒」「跳过本次」按钮
+- 普通卡片 8 秒自动消失，hover 暂停，离开恢复
 - 同一类非持久提醒（护眼/喝水）只保留一个，避免快速测试时堆叠
 - 内容超出时 `.toast-stack` 可滚动，并自动滚动到底部
 
@@ -29,9 +29,15 @@
 |------|------|------|
 | 休息提醒 | 紫色 | 8s 自动消失 |
 | 喝水提醒 | 蓝色 | 8s 自动消失 |
-| 护眼提醒 | 绿色 | 8s 自动消失 |
+| 护眼提醒 | 绿色 | 25s 自动消失，倒计时在进度条右侧，hover 不暂停 |
 | 休息计时 | 绿色 | 不自动关闭，液体球动画，满 break_minutes 后继续累计 |
 | 更新通知 | 橙色 | 不自动关闭，展开更新日志 + 下载进度条 |
+
+## 定位职责
+
+- 已有 Toast 窗口时，前端通过 `currentMonitor()` 获取工作区，调用 `setSize` / `setPosition`
+- Rust 兜底创建窗口时才会调用 `position_toast_window`
+- 需要 `core:window:allow-current-monitor` 权限
 
 ## 调试
 
