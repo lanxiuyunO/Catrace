@@ -49,14 +49,18 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
         <div class="pulse-dot" />
         <h2 class="title">{{ title }}</h2>
       </div>
-      <span class="countdown">{{ countdown }}s</span>
       <button class="close-btn" @click="emit('close')" aria-label="关闭">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
       </button>
     </div>
-    <div class="progress-bar" :style="{ width: `${progress}%` }" />
+    <div class="progress-row">
+      <div class="progress-track">
+        <div class="progress-bar" :style="{ width: `${progress}%` }" />
+      </div>
+      <span class="countdown">{{ countdown }}s</span>
+    </div>
   </div>
 </template>
 
@@ -72,7 +76,7 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.375rem;
+  margin-bottom: 0.25rem;
 }
 
 .header-left {
@@ -107,11 +111,13 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
 }
 
 .countdown {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #059669;
   font-variant-numeric: tabular-nums;
-  margin-right: 0.5rem;
+  flex-shrink: 0;
+  margin-left: 0.5rem;
+  line-height: 1;
 }
 
 .close-btn {
@@ -139,11 +145,23 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
   transform: scale(0.95);
 }
 
-.progress-bar {
-  width: 100%;
+.progress-row {
+  display: flex;
+  align-items: center;
+  margin-top: 0.375rem;
+}
+
+.progress-track {
+  flex: 1;
   height: 0.1875rem;
+  background: #E5F2ED;
+  border-radius: 0.125rem;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
   background: linear-gradient(90deg, #059669, #34D399);
   border-radius: 0.125rem;
-  margin: 0.5rem 0 0;
 }
 </style>
