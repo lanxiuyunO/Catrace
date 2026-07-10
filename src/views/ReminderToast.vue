@@ -377,14 +377,6 @@ async function addNotification(payload: {
   version?: string
   updateBody?: string
 }) {
-  // 同一类非持久提醒（护眼/喝水）只保留一个，避免快速测试时堆叠
-  if (payload.kind === 'eye' || payload.kind === 'water') {
-    const existing = notifications.value.find((n) => n.kind === payload.kind)
-    if (existing) {
-      removeNotification(existing.id, false)
-    }
-  }
-
   // 限制最大数量，移除最旧的通知（不带动画，避免和进入动画打架）
   while (notifications.value.length >= MAX_NOTIFICATIONS) {
     removeNotification(notifications.value[0].id, false)
