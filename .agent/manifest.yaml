@@ -18,6 +18,7 @@ features:
     docs:
       - .agent/features/toast-window/README.md
       - .agent/features/toast-window/development-notes.md
+      - .agent/features/toast-window/dedicated-card-renders-own-body-generic-template-must-exclude-it.md
     related:
       - reminder
       - water-reminder
@@ -132,11 +133,12 @@ bugs:
   - .agent/bugs/2026-07-10-toast-stacking-display.md
 
 devlog:
+  - .agent/devlog/2026-07-11-eye-toast-snooze-skip-buttons.md
   - .agent/devlog/2026-07-10-eye-reminder-rest-reset.md
   - .agent/devlog/2026-07-10-eye-reminder.md
   - .agent/devlog/2026-07-09-logging.md
   - .agent/devlog/2026-07-07-drop-rdev.md
 
 current:
-  phase: 护眼提醒触发逻辑改为「上次提醒与真正休息取较晚者」，active 守卫上移
+  phase: 护眼 Toast 卡片增加「稍后5分钟 / 跳过本次」按钮，状态机新增 snooze
   next: 按需拆分喝水/休息/更新等其余 Toast 卡片类型

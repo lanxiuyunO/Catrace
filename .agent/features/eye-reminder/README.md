@@ -5,12 +5,12 @@
 ## 涉及文件
 
 - `src-tauri/src/eye.rs` — 状态机 `EyeReminderState`、设置读写、命令、每分钟结算检查
-- `src-tauri/src/lib.rs` — 每分钟活跃结算时调用 `eye::check_and_notify()`
-- `src/components/EyeToastCard.vue` — 护眼提醒专用 Toast 卡片（标题 + 倒计时 + 进度条）
+- `src-tauri/src/lib.rs` — 每分钟活跃结算时调用 `eye::check_and_notify()`；注册 `snooze_eye_reminder` / `skip_eye_reminder` 命令
+- `src/components/EyeToastCard.vue` — 护眼提醒专用 Toast 卡片（标题 + 倒计时 + 进度条 + 绿色正文 + 稍后/跳过按钮）
 - `src/components/settings/EyeSettingsCard.vue` — 设置页护眼提醒卡片
-- `src/views/ReminderToast.vue` — 通用 Toast 堆叠容器，调度 `EyeToastCard`
+- `src/views/ReminderToast.vue` — 通用 Toast 堆叠容器，调度 `EyeToastCard`；通用 body 渲染已排除 `eye`（正文由卡片自渲染）
 - `src/api/tauri.ts` — 前端 API 封装
-- `src/i18n/locales/zh-CN.ts` / `en-US.ts` — 中英文字符串
+- `src/i18n/locales/zh-CN.ts` / `en-US.ts` — 中英文字符串（按钮文案复用 `reminder.snooze5` / `reminder.skip`）
 
 ## 触发逻辑
 
@@ -39,10 +39,17 @@
 ## UI
 
 - 设置卡片使用绿色主题，与喝水提醒蓝色主题区分
-- Toast 卡片仅显示：脉冲点 + 标题、25 秒倒计时、绿色进度条、关闭按钮
+- Toast 卡片：脉冲点 + 标题、25 秒倒计时、绿色进度条、绿色正文、关闭按钮
+- 卡片底部两个按钮：「稍后5分钟」（`snooze_eye_reminder`）、「跳过本次」（`skip_eye_reminder`，等同推迟一个 `eye_interval`）
 - 倒计时位于进度条右侧，每秒刷新
 - Hover 不暂停倒计时，到时间自动关闭
 - 中文界面显示「护眼提醒」，英文为 "Eye Care Reminder"
+
+## 状态机
+
+`EyeReminderState`（进程级，重启后重置）：
+- `last_reminder_sent` — 1 秒去重，防同一秒重复弹
+- `snooze_until` — 用户点「稍后」或「跳过」后写入；结算检查时若处于 snooze 期内则不弹。`snooze_until` 一过期自动失效，无需主动清除
 
 ## 配置
 
@@ -53,7 +60,7 @@
 
 ## 测试
 
-`eye.rs` 包含 1 个测试：`can_send_reminder` 1 秒去重。
+`eye.rs` 包含 2 个测试：`can_send_reminder` 1 秒去重、`is_snoozed` 推迟逻辑。
 
 ## 相关
 
