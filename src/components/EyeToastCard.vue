@@ -96,13 +96,13 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
 .header-left {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 
 .pulse-dot {
-  width: 0.625rem;
-  height: 0.625rem;
+  width: 0.5rem;
+  height: 0.5rem;
   border-radius: 50%;
   background: #10B981;
   animation: pulse 1.5s ease-in-out infinite;
@@ -115,7 +115,7 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
 }
 
 .title {
-  font-size: 1rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #065F46;
   margin: 0;
@@ -125,18 +125,18 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
 }
 
 .countdown {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: #059669;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
-  margin-left: 0.5rem;
+  margin-left: 0.375rem;
   line-height: 1;
 }
 
 .close-btn {
-  width: 2rem;
-  height: 2rem;
+  width: 1.5rem;
+  height: 1.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -144,7 +144,7 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
   border: none;
   color: #9C8DB5;
   cursor: pointer;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem;
   padding: 0;
   flex-shrink: 0;
   transition: all 0.2s ease;
@@ -162,14 +162,14 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
 .progress-row {
   display: flex;
   align-items: center;
-  margin-top: 0.375rem;
+  margin-top: 0.25rem;
 }
 
 .progress-track {
   flex: 1;
-  height: 0.1875rem;
+  height: 0.125rem;
   background: #E5F2ED;
-  border-radius: 0.125rem;
+  border-radius: 0.0625rem;
   overflow: hidden;
 }
 
@@ -180,32 +180,24 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
 }
 
 .body-text {
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: #047857;
-  line-height: 1.6;
-  margin: 0.75rem 0 0.875rem;
-  word-break: break-word;
-}
-
-.body-text {
-  font-size: 0.875rem;
-  color: #047857;
-  line-height: 1.6;
-  margin: 0.75rem 0 0.875rem;
+  line-height: 1.5;
+  margin: 0.5rem 0 0.625rem;
   word-break: break-word;
 }
 
 .actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.375rem;
   margin-top: auto;
 }
 
 .btn {
   flex: 1;
-  height: 2.25rem;
-  border-radius: 0.625rem;
-  font-size: 0.8125rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   border: none;

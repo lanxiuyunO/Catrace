@@ -77,9 +77,9 @@ const REST_TIMER_REMOVE_DELAY_MS = 4000
 const AUTO_HIDE_MS = 8000
 const EYE_AUTO_HIDE_MS = 25000
 const MAX_NOTIFICATIONS = 5
-const CARD_HEIGHT = 180
-const CARD_GAP = 12
-const PADDING = 20
+const CARD_HEIGHT = 128
+const CARD_GAP = 8
+const PADDING = 16
 const WINDOW_WIDTH = 360
 
 // 临时调试信息
@@ -207,8 +207,10 @@ async function adjustWindowSize() {
     const workAreaWidth = workArea ? workArea.size.width / sf : (window.screen.availWidth || window.innerWidth)
     const workAreaHeight = workArea ? workArea.size.height / sf : (window.screen.availHeight || window.innerHeight)
 
-    // 量内容栈总高度（含被 max-height 隐藏的溢出部分），再加 root 内边距得到窗口总高
-    const stackHeight = stackRef.value?.scrollHeight ?? calcWindowHeight(count)
+    // 量内容栈总高度（含被 max-height 隐藏的溢出部分），再加 root 内边距得到窗口总高。
+    // scrollHeight 包含 stack 自身为阴影留出的 1rem*2 padding，需减去。
+    const rawStackHeight = stackRef.value?.scrollHeight
+    const stackHeight = rawStackHeight != null ? rawStackHeight - 32 : calcWindowHeight(count)
     // 窗口高度不超过工作区高度，避免超出屏幕
     const newHeightLogical = Math.min(workAreaHeight, stackHeight + PADDING * 2)
     // 贴右下角：x = 工作区右边缘 - 窗口宽度，y = 工作区下边缘 - 窗口高度
@@ -868,7 +870,7 @@ async function handleUpdateInstall(item: ToastItem) {
   flex-direction: column;
   justify-content: flex-end;
   align-items: flex-end;
-  padding: 1.25rem;
+  padding: 1rem;
   box-sizing: border-box;
   background: transparent;
   user-select: none;
@@ -880,11 +882,15 @@ async function handleUpdateInstall(item: ToastItem) {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.75rem;
+  gap: 0.5rem;
   width: 100%;
   max-height: 100%;
   overflow-y: auto;
   scrollbar-width: none;
+  /* overflow 会把卡片阴影裁掉；四边各借 16px padding 放阴影，
+     负 margin 拉回，保证卡片宽度/窗口高度不变 */
+  margin: -1rem;
+  padding: 1rem;
 }
 
 .toast-stack::-webkit-scrollbar {
@@ -896,16 +902,18 @@ async function handleUpdateInstall(item: ToastItem) {
 }
 
 .toast-card {
-  width: 20rem;
-  min-height: 11.25rem;
+  width: 100%;
+  min-height: 8rem;
   max-height: 37.5rem;
   background: #ffffff;
-  border-radius: 0.75rem;
-  padding: 1rem;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 0.25rem 1rem rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 0.5rem 1.5rem rgba(0, 0, 0, 0.18),
+    0 0.125rem 0.375rem rgba(0, 0, 0, 0.12);
   transform: translateX(120%) scale(0.96);
   opacity: 0;
   transition:
@@ -986,12 +994,12 @@ async function handleUpdateInstall(item: ToastItem) {
   display: flex;
   justify-content: center;
   align-items: center;
-  margin: 0.625rem 0 0.875rem;
+  margin: 0.375rem 0 0.5rem;
 }
 
 .liquid-ball {
-  width: 7rem;
-  height: 7rem;
+  width: 5.25rem;
+  height: 5.25rem;
   border-radius: 50%;
   position: relative;
   overflow: hidden;
@@ -1061,24 +1069,24 @@ async function handleUpdateInstall(item: ToastItem) {
 .update-body {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 12rem;
+  max-height: 10rem;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 0.8125rem;
-  line-height: 1.6;
+  font-size: 0.75rem;
+  line-height: 1.5;
   color: #78350F;
   background: #FFFBEB;
-  border-radius: 0.5rem;
-  padding: 0.625rem 0.75rem;
-  margin: 0 0 0.875rem 0;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  margin: 0 0 0.625rem 0;
 }
 
 .update-progress {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  margin-bottom: 0.875rem;
+  gap: 0.5rem;
+  margin-bottom: 0.625rem;
 }
 
 .update-progress-track {
@@ -1128,19 +1136,19 @@ async function handleUpdateInstall(item: ToastItem) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.375rem;
+  margin-bottom: 0.25rem;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 
 .pulse-dot {
-  width: 0.625rem;
-  height: 0.625rem;
+  width: 0.5rem;
+  height: 0.5rem;
   border-radius: 50%;
   background: #EF4444;
   animation: pulse 1.5s ease-in-out infinite;
@@ -1153,7 +1161,7 @@ async function handleUpdateInstall(item: ToastItem) {
 }
 
 .title {
-  font-size: 1rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #2E1065;
   margin: 0;
@@ -1165,10 +1173,10 @@ async function handleUpdateInstall(item: ToastItem) {
 /* Progress bar */
 .progress-bar {
   width: 100%;
-  height: 0.1875rem;
+  height: 0.125rem;
   background: linear-gradient(90deg, #7C3AED, #A78BFA);
-  border-radius: 0.125rem;
-  margin: 0.625rem 0 0.75rem;
+  border-radius: 0.0625rem;
+  margin: 0.375rem 0 0.5rem;
   animation: progress-shrink var(--toast-auto-hide-ms) linear forwards;
 }
 
@@ -1182,8 +1190,8 @@ async function handleUpdateInstall(item: ToastItem) {
 }
 
 .close-btn {
-  width: 2rem;
-  height: 2rem;
+  width: 1.5rem;
+  height: 1.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1191,7 +1199,7 @@ async function handleUpdateInstall(item: ToastItem) {
   border: none;
   color: #9C8DB5;
   cursor: pointer;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem;
   padding: 0;
   flex-shrink: 0;
   transition: all 0.2s ease;
@@ -1206,10 +1214,10 @@ async function handleUpdateInstall(item: ToastItem) {
 
 /* Body */
 .body-text {
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: #6B5B8A;
-  line-height: 1.6;
-  margin: 0 0 0.875rem 0;
+  line-height: 1.5;
+  margin: 0 0 0.625rem 0;
   word-break: break-word;
   flex: 1 1 auto;
   min-height: 0;
@@ -1219,15 +1227,15 @@ async function handleUpdateInstall(item: ToastItem) {
 /* Actions */
 .actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.375rem;
   margin-top: auto;
 }
 
 .btn {
   flex: 1;
-  height: 2.25rem;
-  border-radius: 0.625rem;
-  font-size: 0.8125rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   border: none;
