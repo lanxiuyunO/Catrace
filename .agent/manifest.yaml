@@ -19,6 +19,7 @@ features:
       - .agent/features/toast-window/README.md
       - .agent/features/toast-window/development-notes.md
       - .agent/features/toast-window/dedicated-card-renders-own-body-generic-template-must-exclude-it.md
+      - .agent/features/toast-window/toast-卡片紧凑尺寸规范-和阴影防裁剪出血方案.md
     related:
       - reminder
       - water-reminder
@@ -133,6 +134,7 @@ bugs:
   - .agent/bugs/2026-07-10-toast-stacking-display.md
 
 devlog:
+  - .agent/devlog/2026-07-11-toast-卡片缩小到原生尺寸-和阴影修复.md
   - .agent/devlog/2026-07-11-eye-toast-snooze-skip-buttons.md
   - .agent/devlog/2026-07-10-eye-reminder-rest-reset.md
   - .agent/devlog/2026-07-10-eye-reminder.md
@@ -140,5 +142,5 @@ devlog:
   - .agent/devlog/2026-07-07-drop-rdev.md
 
 current:
-  phase: 护眼 Toast 卡片增加「稍后5分钟 / 跳过本次」按钮，状态机新增 snooze
-  next: 按需拆分喝水/休息/更新等其余 Toast 卡片类型
+  phase: Toast 卡片缩小到原生尺寸 + 阴影四边出血修复完成
+  next: 用户本地 dev 确认观感后提交；按需拆分喝水/休息/更新等其余 Toast 卡片类型

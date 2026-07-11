@@ -9,8 +9,8 @@ use crate::log_error;
 
 const TOAST_WINDOW_LABEL: &str = window_manager::TOAST_WINDOW_LABEL;
 const TOAST_WINDOW_WIDTH: f64 = 360.0;
-// 与前端单条通知窗口高度保持一致：卡片 180px + 上下 padding 各 20px
-const TOAST_WINDOW_MIN_HEIGHT: f64 = 220.0;
+// 与前端单条通知窗口高度保持一致：卡片 128px + 上下 padding 各 16px
+const TOAST_WINDOW_MIN_HEIGHT: f64 = 160.0;
 
 /// 全局异步锁，串行化所有 Toast 窗口的创建/显示/追加操作。
 /// 防止快速连续触发时并发操作 WebviewWindow 导致崩溃。
