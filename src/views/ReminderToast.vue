@@ -16,6 +16,8 @@ import {
   recordWater,
   snoozeWaterReminder,
   skipWaterReminder,
+  snoozeEyeReminder,
+  skipEyeReminder,
   getActivitySnapshot,
   dismissRestTimer,
 } from '../api/tauri'
@@ -638,6 +640,26 @@ async function handleWaterSkip(item: ToastItem) {
   removeNotification(item.id, true)
 }
 
+async function handleEyeSnooze(item: ToastItem, minutes: number) {
+  stopTimer(item)
+  try {
+    await snoozeEyeReminder(minutes)
+  } catch {
+    // ignore
+  }
+  removeNotification(item.id, true)
+}
+
+async function handleEyeSkip(item: ToastItem) {
+  stopTimer(item)
+  try {
+    await skipEyeReminder()
+  } catch {
+    // ignore
+  }
+  removeNotification(item.id, true)
+}
+
 function toggleUpdateDetails(item: ToastItem) {
   item.showUpdateBody = !item.showUpdateBody
   nextTick(() => adjustWindowSize())
@@ -720,6 +742,8 @@ async function handleUpdateInstall(item: ToastItem) {
           :last-start-at="item.lastStartAt"
           :total-ms="item.totalMs"
           @close="handleClose(item)"
+          @snooze="(m) => handleEyeSnooze(item, m)"
+          @skip="handleEyeSkip(item)"
         />
 
         <!-- Header -->
@@ -761,7 +785,7 @@ async function handleUpdateInstall(item: ToastItem) {
         </div>
 
         <!-- Body -->
-        <p v-if="item.kind !== 'update'" class="body-text">{{ item.body }}</p>
+        <p v-if="item.kind !== 'update' && item.kind !== 'eye'" class="body-text">{{ item.body }}</p>
 
         <!-- Update changelog -->
         <div

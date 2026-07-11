@@ -1453,6 +1453,8 @@ pub fn run() {
             eye::get_eye_settings,
             eye::set_eye_settings,
             eye::test_eye_notification,
+            eye::snooze_eye_reminder,
+            eye::skip_eye_reminder,
             get_media_debug_info,
             get_activity_snapshot,
             dismiss_rest_timer,

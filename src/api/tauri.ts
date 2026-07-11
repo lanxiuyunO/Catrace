@@ -124,6 +124,16 @@ export async function testEyeNotification(): Promise<void> {
   return invoke('test_eye_notification')
 }
 
+/** 推迟护眼提醒 N 分钟 */
+export async function snoozeEyeReminder(minutes: number): Promise<void> {
+  return invoke('snooze_eye_reminder', { minutes })
+}
+
+/** 跳过本次护眼提醒 */
+export async function skipEyeReminder(): Promise<void> {
+  return invoke('skip_eye_reminder')
+}
+
 export interface WaterSettings {
   enabled: boolean
   interval_minutes: number

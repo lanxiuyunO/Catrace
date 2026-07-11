@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   title: string
@@ -11,6 +14,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'snooze', minutes: number): void
+  (e: 'skip'): void
 }>()
 
 const now = ref(Date.now())
@@ -60,6 +65,15 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
         <div class="progress-bar" :style="{ width: `${progress}%` }" />
       </div>
       <span class="countdown">{{ countdown }}s</span>
+    </div>
+    <p class="body-text">{{ body }}</p>
+    <div class="actions">
+      <button class="btn btn-secondary" @click="emit('snooze', 5)">
+        {{ t('reminder.snooze5') }}
+      </button>
+      <button class="btn btn-primary" @click="emit('skip')">
+        {{ t('reminder.skip') }}
+      </button>
     </div>
   </div>
 </template>
@@ -163,5 +177,62 @@ const countdown = computed(() => Math.max(0, Math.ceil(remaining.value / 1000)))
   height: 100%;
   background: linear-gradient(90deg, #059669, #34D399);
   border-radius: 0.125rem;
+}
+
+.body-text {
+  font-size: 0.875rem;
+  color: #047857;
+  line-height: 1.6;
+  margin: 0.75rem 0 0.875rem;
+  word-break: break-word;
+}
+
+.body-text {
+  font-size: 0.875rem;
+  color: #047857;
+  line-height: 1.6;
+  margin: 0.75rem 0 0.875rem;
+  word-break: break-word;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+
+.btn {
+  flex: 1;
+  height: 2.25rem;
+  border-radius: 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.btn-secondary {
+  background: #ECFDF5;
+  color: #059669;
+}
+.btn-secondary:hover {
+  background: #D1FAE5;
+}
+
+.btn-primary {
+  background: #059669;
+  color: #ffffff;
+}
+.btn-primary:hover {
+  background: #047857;
+}
+
+.btn:active {
+  transform: scale(0.97);
 }
 </style>
